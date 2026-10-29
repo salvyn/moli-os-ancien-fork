@@ -175,8 +175,8 @@
 {/if}
 
 <style>
-  /* The actions and the lock on the left, the rain on the right: the
-     width of the home page's Électricité tile (a third). */
+  /* The actions and the lock on the left (half the width at most), the
+     rain beside them. */
   .quick {
     display: grid;
     grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -186,11 +186,11 @@
 
   .actions,
   .lock {
-    grid-column: span 8;
+    grid-column: span 5;
   }
 
   .rain {
-    grid-column: span 4;
+    grid-column: span 3;
     grid-row: span 2;
     display: grid;
     grid-template-rows: auto 1fr auto;
@@ -215,15 +215,18 @@
     color: var(--warm-ink);
   }
 
+  /* A group: its name and state on top, its buttons as tiles below. */
   .row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 10px 16px;
+    display: grid;
+    gap: 10px;
+  }
+
+  .row + .row {
+    padding-top: 14px;
+    border-top: 1px solid var(--line, rgba(128, 128, 128, 0.22));
   }
 
   .what {
-    flex: 1 1 150px;
     display: grid;
     gap: 2px;
     min-width: 0;
@@ -243,12 +246,11 @@
     font-weight: 600;
   }
 
-  /* Opening above closing. */
+  /* Opening, (ventilation,) closing side by side, same size, centred. */
   .buttons {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+    gap: 10px;
   }
 
   button {
@@ -262,13 +264,16 @@
   }
 
   .go {
-    display: inline-flex;
+    display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 10px;
-    min-width: 260px;
-    padding: 8px 16px 8px 8px;
+    justify-content: flex-start;
+    gap: 8px;
+    padding: 12px 8px;
     border: 0;
-    border-radius: 999px;
+    border-radius: 18px;
+    text-align: center;
+    line-height: 1.2;
     background: var(--surface-2);
     color: var(--ink);
     font-size: 14px;
@@ -293,6 +298,8 @@
   }
 
   .stop {
+    grid-column: 1 / -1;
+    justify-content: center;
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -458,16 +465,16 @@
     }
   }
 
-  /* As the home page's tiles: half and half, then one above the other. */
+  /* Narrower screens: actions and rain half and half, the lock below. */
   @media (max-width: 1180px) {
-    .actions {
-      grid-column: span 12;
-    }
-
-    .lock,
+    .actions,
     .rain {
       grid-column: span 6;
       grid-row: auto;
+    }
+
+    .lock {
+      grid-column: span 12;
     }
   }
 
@@ -498,11 +505,6 @@
   }
 
   @media (max-width: 520px) {
-    .go {
-      min-width: 0;
-      flex: 1 1 100%;
-    }
-
     .toggle {
       flex: 1 1 100%;
       justify-content: center;

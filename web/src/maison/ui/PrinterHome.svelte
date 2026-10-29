@@ -101,6 +101,7 @@
     display: grid;
     gap: 2px;
     min-width: 0;
+    text-align: center;
     color: var(--ink-2);
   }
 
