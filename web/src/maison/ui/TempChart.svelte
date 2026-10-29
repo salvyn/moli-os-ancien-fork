@@ -8,11 +8,12 @@
    *  (named in a legend when there are several), outside dashed when asked,
    *  on the scale every room shares (`scale`). Its figures: now, lowest and
    *  highest. Hovering or touching a moment (`hover`, shared by every room)
-   *  says the values then. */
-  let { name, icon = 'home', lines = [], outdoor = null, scale, from, to, range, hover = $bindable(null) } = $props();
+   *  says the values then. `onopen` makes the card a button (it opens the
+   *  chart large); `big` is that large chart. */
+  let { name, icon = 'home', lines = [], outdoor = null, scale, from, to, range, hover = $bindable(null), onopen = null, big = false } = $props();
 
   let W = $state(360);
-  const H = 150;
+  const H = $derived(big ? (W < 520 ? 280 : 400) : 150);
   const L = 30;
   const T = 8;
   const B = 20;
@@ -82,7 +83,20 @@
   const deg = (v) => (v == null ? '—' : `${num(v, 1)}°`);
 </script>
 
-<section class="card room">
+<section
+  class="card room"
+  class:open={!!onopen}
+  class:big
+  role={onopen ? 'button' : undefined}
+  tabindex={onopen ? 0 : undefined}
+  aria-label={onopen ? t('maison.temperatures.agrandir', { name }) : undefined}
+  onclick={onopen}
+  onkeydown={(e) => {
+    if (onopen && (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault();
+      onopen();
+    }
+  }}>
   <header>
     <h2><Icon name={icon} size={18} />{name}</h2>
     <div class="figure" aria-live="polite">
@@ -149,6 +163,37 @@
 </section>
 
 <style>
+  .room.open {
+    cursor: pointer;
+    transition: box-shadow 0.2s var(--ease);
+  }
+
+  .room.open:hover,
+  .room.open:focus-visible {
+    box-shadow: var(--shadow-lift, 0 8px 24px rgb(0 0 0 / 14%));
+  }
+
+  .big .figure strong {
+    font-size: 34px;
+  }
+
+  .big h2 {
+    font-size: 20px;
+  }
+
+  .big .axis {
+    font-size: 12px;
+  }
+
+  .big .line {
+    stroke-width: 2.5;
+  }
+
+  .big .legend,
+  .big .range {
+    font-size: 14px;
+  }
+
   .room {
     display: grid;
     align-content: start;

@@ -139,6 +139,8 @@
   "maison.fenetres.rapide.ouvrir_stores": "Ouverture des stores",
   "maison.fenetres.rapide.fermer_fenetres": "Fermeture des fenêtres",
   "maison.fenetres.rapide.ouvrir_fenetres": "Ouverture des fenêtres",
+  "maison.fenetres.rapide.aerer_fenetres": "Aération",
+  "maison.fenetres.rapide.aerer_aide": "Aération des fenêtres (ouvertes à 10 %)",
   "maison.fenetres.rapide.stores_tous_baisses": "Tous baissés",
   "maison.fenetres.rapide.stores_tous_leves": "Tous levés",
   "maison.fenetres.rapide.stores_leves": "{n} levés sur {count}",
@@ -352,6 +354,7 @@
   "maison.temperatures.min_max": "Entre {min} et {max}",
   "maison.temperatures.dehors_alors": "dehors {v}",
   "maison.temperatures.courbe": "La température de {name} au fil du temps",
+  "maison.temperatures.agrandir": "Agrandir la courbe de {name}",
   "maison.temperatures.pas_de_mesure": "Pas de mesure sur cette période.",
   "maison.temperatures.dehors": "Dehors",
   "maison.temperatures.mesure_par": "Mesurée par {name}"

@@ -55,6 +55,8 @@
         tally: tally(windows),
         close: { label: t('maison.fenetres.rapide.fermer_fenetres'), icon: 'window-closed' },
         open: { label: t('maison.fenetres.rapide.ouvrir_fenetres'), icon: 'window-open', rainy: true },
+        // Between opening and closing: every window at 10 %, the vent bar.
+        air: { label: t('maison.fenetres.rapide.aerer_fenetres'), hint: t('maison.fenetres.rapide.aerer_aide'), icon: 'window-vent', rainy: true },
         said: (s) =>
           s.open === 0 ? t('maison.fenetres.rapide.fenetres_toutes_fermees') : t('maison.fenetres.rapide.fenetres_ouvertes', { n: s.open, count: s.total }),
       },
@@ -100,10 +102,9 @@
               <small class:moving={row.tally.moving}>{row.tally.moving ? t('maison.fenetres.rapide.en_mouvement') : row.said(row.tally)}</small>
             </div>
             <div class="buttons">
-              {#each [row.open, row.close] as b, i (b.icon)}
-                {@const what = i === 0 ? 'open' : 'close'}
+              {#each [[row.open, 'open'], [row.air, 'aerate'], [row.close, 'close']].filter(([b]) => b) as [b, what] (what)}
                 {@const wet = b.rainy && raining}
-                <button class="go" disabled={!!busy || locked || wet} onclick={() => go(row.key, what, b.label)} title={wet ? t('maison.fenetres.rapide.pluie_refuse') : b.label}>
+                <button class="go" disabled={!!busy || locked || wet} onclick={() => go(row.key, what, b.label)} title={wet ? t('maison.fenetres.rapide.pluie_refuse') : (b.hint ?? b.label)}>
                   <span class="glyph"><Icon name={b.icon} size={26} /></span>
                   <span>{busy === `${row.key}/${what}` ? t('maison.fenetres.rapide.patience') : b.label}</span>
                 </button>

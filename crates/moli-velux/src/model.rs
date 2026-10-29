@@ -49,6 +49,9 @@ pub struct Home {
     pub modules: Vec<Module>,
 }
 
+/// How far « aerate » opens every roof window (percent).
+const AERATE_PERCENT: i64 = 10;
+
 /// Where an order sends a window or a blind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Target {
@@ -144,6 +147,14 @@ impl Group {
         }
     }
 
+    /// The words its point takes: windows also air (`aerate`).
+    fn orders(self) -> &'static [&'static str] {
+        match self {
+            Self::Covers => &["open", "stop", "close"],
+            Self::Windows => &["open", "stop", "close", "aerate"],
+        }
+    }
+
     fn role(self) -> Role {
         match self {
             Self::Covers => Role::Cover,
@@ -173,7 +184,7 @@ impl Home {
                 group.key(),
                 label,
                 Kind::Enum {
-                    values: ["open", "stop", "close"].map(Arc::from).to_vec(),
+                    values: group.orders().iter().copied().map(Arc::from).collect(),
                 },
                 None,
                 Semantic::Control,
@@ -470,6 +481,8 @@ impl Module {
                 "open" => Ok(Target::Position(100)),
                 "close" => Ok(Target::Position(0)),
                 "stop" => Ok(Target::Stop),
+                // Windows only: ajar, the vent bar open, not the sash.
+                "aerate" if key == "windows" => Ok(Target::Position(AERATE_PERCENT)),
                 _ => Err(moli_i18n::tr("pilotes.velux.position_invalide")),
             },
             _ => Err(moli_i18n::tr("pilotes.velux.lecture_seule")),
@@ -833,6 +846,13 @@ mod tests {
             windows
                 .iter()
                 .all(|o| o["hash_target_position"].is_string())
+        );
+
+        let aerate = gateway(&home).target("windows", &text("aerate")).unwrap();
+        assert_eq!(aerate, Target::Position(10));
+        assert!(
+            gateway(&home).target("blinds", &text("aerate")).is_err(),
+            "blinds do not air"
         );
 
         let stop = home

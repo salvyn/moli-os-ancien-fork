@@ -6,6 +6,7 @@
   import { seriesColor } from '../lib/palette.js';
   import { t } from '../../lib/i18n.svelte.js';
   import TempChart from '../ui/TempChart.svelte';
+  import Icon from '../ui/Icon.svelte';
 
   /** Each room's temperature over the last day, week or month, floor by
    *  floor as on the Pièces page: every room on the same scale, so they
@@ -99,7 +100,22 @@
   // One scale for every room (outside included when shown).
   const scale = $derived(scaleOf([...rooms.flatMap((r) => r.probes.map((p) => lines[p.point] ?? [])), ...(outdoor ? [outdoor] : [])]));
   let hover = $state(null);
+
+  // The room opened large: its card alone, on a backdrop.
+  let openName = $state(null);
+  let bigHover = $state(null);
+  const opened = $derived(rooms.find((r) => r.name === openName) ?? null);
+  function openRoom(name) {
+    bigHover = null;
+    openName = name;
+  }
+  const lineList = (room) => room.probes.map((p, i) => ({ id: p.point, name: nameOf(p.id), color: seriesColor(i), line: lines[p.point] ?? [] }));
+  function onkey(e) {
+    if (e.key === 'Escape') openName = null;
+  }
 </script>
+
+<svelte:window onkeydown={onkey} />
 
 <div class="temperatures">
   <header class="head">
@@ -134,12 +150,13 @@
             <TempChart
               name={room.name}
               icon={room.icon}
-              lines={room.probes.map((p, i) => ({ id: p.point, name: nameOf(p.id), color: seriesColor(i), line: lines[p.point] ?? [] }))}
+              lines={lineList(room)}
               {outdoor}
               {scale}
               from={frame.from}
               to={frame.to}
               {range}
+              onopen={() => openRoom(room.name)}
               bind:hover />
           {/each}
         </div>
@@ -148,7 +165,91 @@
   {/if}
 </div>
 
+{#if opened}
+  <div class="viewer" role="dialog" aria-modal="true" aria-label={t('maison.temperatures.courbe', { name: opened.name })}>
+    <button class="backdrop" onclick={() => (openName = null)} aria-label={t('commun.fermer')} tabindex="-1"></button>
+    <div class="stage">
+      <div class="bar">
+        <div class="seg" role="group" aria-label={t('maison.temperatures.periode')}>
+          {#each RANGES as [key, , label] (key)}
+            <button class:on={range === key} onclick={() => pick(key)}>{t(label)}</button>
+          {/each}
+        </div>
+        {#if outPoint}
+          <button class="toggle" class:on={outside} aria-pressed={outside} onclick={toggleOutside}>
+            <i></i>{t('maison.temperatures.comparer_dehors')}
+          </button>
+        {/if}
+        <button class="close" onclick={() => (openName = null)} aria-label={t('commun.fermer')}><Icon name="close" size={22} /></button>
+      </div>
+      <TempChart
+        big
+        name={opened.name}
+        icon={opened.icon}
+        lines={lineList(opened)}
+        {outdoor}
+        {scale}
+        from={frame.from}
+        to={frame.to}
+        {range}
+        bind:hover={bigHover} />
+    </div>
+  </div>
+{/if}
+
 <style>
+  .viewer {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+  }
+
+  .backdrop {
+    position: absolute;
+    inset: 0;
+    border: 0;
+    background: rgb(6 9 14 / 70%);
+    backdrop-filter: blur(8px);
+  }
+
+  .stage {
+    position: relative;
+    width: min(1100px, 100%);
+    max-height: calc(100dvh - 48px);
+    overflow: auto;
+    display: grid;
+    gap: 14px;
+  }
+
+  .bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .close {
+    margin-left: auto;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 0;
+    background: rgb(255 255 255 / 14%);
+    color: #fff;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+  }
+
+  @media (max-width: 560px) {
+    .viewer {
+      padding: 12px;
+    }
+  }
+
   .temperatures {
     display: grid;
     grid-template-columns: minmax(0, 1fr);

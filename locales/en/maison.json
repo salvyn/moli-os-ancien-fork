@@ -139,6 +139,8 @@
   "maison.fenetres.rapide.ouvrir_stores": "Open the blinds",
   "maison.fenetres.rapide.fermer_fenetres": "Close the windows",
   "maison.fenetres.rapide.ouvrir_fenetres": "Open the windows",
+  "maison.fenetres.rapide.aerer_fenetres": "Ventilation",
+  "maison.fenetres.rapide.aerer_aide": "Ventilate the windows (10 % open)",
   "maison.fenetres.rapide.stores_tous_baisses": "All down",
   "maison.fenetres.rapide.stores_tous_leves": "All up",
   "maison.fenetres.rapide.stores_leves": "{n} up out of {count}",
@@ -352,6 +354,7 @@
   "maison.temperatures.min_max": "Between {min} and {max}",
   "maison.temperatures.dehors_alors": "outside {v}",
   "maison.temperatures.courbe": "{name}'s temperature over time",
+  "maison.temperatures.agrandir": "Enlarge the chart of {name}",
   "maison.temperatures.pas_de_mesure": "No reading over this period.",
   "maison.temperatures.dehors": "Outside",
   "maison.temperatures.mesure_par": "Measured by {name}"

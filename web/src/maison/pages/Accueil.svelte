@@ -216,9 +216,8 @@
   </section>
 
   <div class="grid">
-    <!-- The small tiles side by side: electricity, then what is on. -->
+    <!-- The small tiles side by side: what is on. -->
     <div class="smalls">
-      {#if energy.summary}<EnergyCard />{/if}
       {#each papersOn as p (p.id)}<PrinterHome id={p.id} />{/each}
       {#each coffeesOn as c (c.id)}<CoffeeHome id={c.id} />{/each}
       <Routines />
@@ -302,11 +301,12 @@
     </a>
     {/if}
 
-    <!-- Off: at the bottom of the page. -->
-    {#if papersOff.length || coffeesOff.length}
+    <!-- The bottom of the page: what is off, and electricity, always last. -->
+    {#if papersOff.length || coffeesOff.length || energy.summary}
       <div class="smalls">
         {#each papersOff as p (p.id)}<PrinterHome id={p.id} />{/each}
         {#each coffeesOff as c (c.id)}<CoffeeHome id={c.id} />{/each}
+        {#if energy.summary}<EnergyCard />{/if}
       </div>
     {/if}
   </div>
