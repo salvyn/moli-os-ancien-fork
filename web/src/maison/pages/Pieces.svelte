@@ -12,6 +12,7 @@
   import HeatingAway from '../ui/HeatingAway.svelte';
   import HeatingNight from '../ui/HeatingNight.svelte';
   import VeluxPlans from '../ui/VeluxPlans.svelte';
+  import VeluxQuick from '../ui/VeluxQuick.svelte';
   import { categoryOf, loadFilter } from '../lib/filters.js';
   import { floorsOf } from '../lib/floors.js';
   import { t } from '../../lib/i18n.svelte.js';
@@ -61,13 +62,13 @@
   );
 
   /** A room with only what the filter keeps; null when nothing is left.
-   *  Its sensors still give its temperature (`probes`). */
+   *  Its sensors and heaters still give its temperature (`probes`). */
   function trim(r) {
     if (!kept.length) return r;
     const on = (id) => kept.includes(id);
     const f = {
       ...r,
-      probes: r.sensors,
+      probes: [...r.sensors, ...r.climates],
       group: on('lumieres') ? r.group : null,
       lights: on('lumieres') ? r.lights : [],
       plugs: on('prises') ? r.plugs : [],
@@ -108,7 +109,9 @@
     </div>{/if}
   </div>{/if}
 
-  {#if only === 'chauffage'}<HeatingAway /><HeatingNight />{/if}
+  {#if only === 'chauffage'}<HeatingAway />{/if}
+  <!-- The quick actions, the lock and the rain, before the rooms. -->
+  {#if only === 'fenetres'}<VeluxQuick />{/if}
 
   {#if empty && !rooms.length}<p class="empty">{t(empty)}</p>{/if}
 
@@ -132,6 +135,8 @@
 
   <!-- The gateway's automations, after the rooms' windows. -->
   {#if only === 'fenetres'}<VeluxPlans />{/if}
+  <!-- The control boxes' lights, a setting seldom touched: last. -->
+  {#if only === 'chauffage'}<HeatingNight />{/if}
 </div>
 
 <style>

@@ -2,6 +2,7 @@
   import { tick } from 'svelte';
   import { hub, value, act, isOn, powerKey, protectedRoom, num, nameOf, deviceKind, lampsOf, doorOpen, leak, motion, lowBattery, unpowered, isFixture, note, reachable, quiet, outletsOf, climateIcon, setpointOf, climateOn, stoveState, climateOffLabel, switchStove, stoveAsked, sensorIcon, climateState, modeWord } from '../lib/home.svelte.js';
   import { t } from '../../lib/i18n.svelte.js';
+  import { roomTemperature } from '../lib/temperatures.js';
   import { isCoffee, STATE_TONE, stateWord } from '../lib/coffee.js';
   import Icon from './Icon.svelte';
   import LightTile from './LightTile.svelte';
@@ -85,19 +86,10 @@
 
   // ---- the room's temperature ----------------------------------------------------------
 
-  // Its sensors' when it has some: a heater's or a unit's own probe, next to
-  // what it heats or cools, only stands in for them.
-  const temp = $derived.by(() => {
-    const read = (list) =>
-      list
-        .filter((d) => d.online !== false)
-        .map((d) => value(d.id, 'temperature') ?? value(d.id, 'temp_current'))
-        .filter((x) => typeof x === 'number');
-    // A filtered room keeps its sensors for this alone (`probes`).
-    const sensed = read(room.probes ?? room.sensors);
-    const readings = sensed.length ? sensed : read(room.climates);
-    return readings.length ? readings.reduce((a, b) => a + b, 0) / readings.length : null;
-  });
+  // The average of everything in the room that reads one: its sensors and
+  // its heaters', stove's or units' own probes. A filtered room keeps them
+  // all for this alone (`probes`).
+  const temp = $derived(roomTemperature(room.probes ?? [...room.sensors, ...room.climates], value));
   // A heater's reading and setpoint: their tenth when they have one (18,5°, 19°).
   const degrees = (v) => num(v, typeof v === 'number' && v % 1 ? 1 : 0);
   const tone = (deg) => (deg < 18 ? 'cold' : deg < 20 ? 'cool' : deg <= 24 ? 'good' : deg <= 27 ? 'warm' : 'hot');

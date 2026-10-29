@@ -359,6 +359,8 @@
   "systeme.infra.pc.allumer_ouvrir": "Turn on and open Claude and Codex",
   "systeme.infra.pc.pret": "Ready: on your phone, open the Claude app (Code tab) for Claude and the ChatGPT app (Codex) for Codex. You’ll be asked for the house code.",
   "systeme.infra.pc.ensuite": "Then, on your phone, open the Claude app (Code tab) for Claude and the ChatGPT app (Codex) for Codex. You’ll be asked for the house code.",
+  "systeme.theme.titre": "Screen appearance",
+  "systeme.theme.aide": "Auto: day or night with the house's own daylight. This choice is for this device only.",
   "systeme.code.titre": "House code",
   "systeme.code.pas_de_code": "The house has no code yet: setup isn’t finished.",
   "systeme.code.terminer": "Finish setup",

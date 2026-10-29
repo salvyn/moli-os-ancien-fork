@@ -2,7 +2,7 @@
   import '@fontsource-variable/figtree';
   import './maison.css';
   import { onMount } from 'svelte';
-  import { home, hub, start, value, savePref } from './lib/home.svelte.js';
+  import { home, hub, start, value } from './lib/home.svelte.js';
   import { useEnergy } from './lib/energy-live.svelte.js';
   import { NAV, filledPages } from './lib/pages.svelte.js';
   import { t } from '../lib/i18n.svelte.js';
@@ -89,17 +89,6 @@
     };
   });
 
-  // The theme button says the preference; a forced one says its own side.
-  const themeName = $derived(home.theme === 'auto' ? t('commun.theme.auto') : theme === 'night' ? t('commun.theme.nuit') : t('commun.theme.jour'));
-  const themeTitle = $derived(
-    home.theme === 'auto' ? t('commun.theme.titre_auto') : home.theme === 'dark' ? t('commun.theme.titre_nuit') : t('commun.theme.titre_jour'),
-  );
-
-  function cycleTheme() {
-    home.theme = home.theme === 'auto' ? (theme === 'night' ? 'light' : 'dark') : 'auto';
-    savePref('maison-theme', home.theme);
-  }
-
   const page = $derived(route.split('/')[0] ?? '');
   /** The device a route points at (`chauffage/<id>`), or null. */
   function focusOf(r) {
@@ -133,10 +122,6 @@
       {/each}
     </ul>
     <div class="rail-foot">
-      <button class="theme" onclick={cycleTheme} title={themeTitle}>
-        <Icon name={theme === 'night' ? 'moon' : 'sun'} size={20} />
-        <span class="label">{themeName}</span>
-      </button>
       <a href="#/systeme" class:active={page === 'systeme'} title={t('commun.nav.systeme_titre')}>
         <Icon name="branch" size={20} />
         <span class="label">{t('commun.nav.systeme')}</span>
@@ -196,11 +181,11 @@
     {:else}
       <Accueil />
     {/if}
-    <!-- On a phone the rail's foot is hidden: the same three, at the bottom. -->
+    <!-- On a phone the rail's foot is hidden: the same two, at the bottom
+         (day or night is chosen on the Système page). -->
     <footer class="phone-foot">
       <a href="#/systeme"><Icon name="branch" size={16} />{t('commun.nav.comment_ca_marche')}</a>
       <a href="#/atelier"><Icon name="atelier" size={16} />{t('commun.nav.atelier')}</a>
-      <button onclick={cycleTheme}><Icon name={theme === 'night' ? 'moon' : 'sun'} size={16} />{home.theme === 'auto' ? t('commun.theme.auto_pied') : themeName}</button>
     </footer>
   </main>
 
@@ -292,8 +277,7 @@
     display: none;
   }
 
-  .rail a,
-  .rail button {
+  .rail a {
     display: grid;
     justify-items: center;
     gap: 4px;
@@ -340,8 +324,7 @@
     gap: 4px;
   }
 
-  .rail-foot a,
-  .rail-foot button {
+  .rail-foot a {
     padding: 8px 0;
   }
 
@@ -554,8 +537,7 @@
       font-size: 13px;
     }
 
-    .phone-foot a,
-    .phone-foot button {
+    .phone-foot a {
       display: inline-flex;
       align-items: center;
       gap: 6px;

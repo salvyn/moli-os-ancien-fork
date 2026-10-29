@@ -42,6 +42,11 @@
     gap: 10px;
   }
 
+  /* Under the energy card, in the home page's side column. */
+  .printer-home:not(:first-child) {
+    margin-top: 20px;
+  }
+
   .printer-home .card-head {
     margin-bottom: 0;
     justify-content: flex-start;

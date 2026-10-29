@@ -143,12 +143,10 @@
   // A card shows only when the house has what it shows.
   onMount(useEnergy);
   const climates = $derived(cfg.favorites?.climate ?? []);
-  // A coffee machine: its state and an espresso or a coffee, at hand; at
-  // the top of the page while it is on (reachable), in the side column off.
+  // A coffee machine: its state and an espresso or a coffee, at hand, in
+  // the side column, small.
   const coffees = $derived(Object.values(hub.devices).filter(isCoffee).sort((a, b) => a.id.localeCompare(b.id)));
-  const coffeesOn = $derived(coffees.filter((c) => reachable(c.id)));
-  const coffeesOff = $derived(coffees.filter((c) => !reachable(c.id)));
-  // A paper printer: at the very top while it is on, above the coffee machine.
+  // A paper printer: in the side column too, while it is on.
   const papersOn = $derived(Object.values(hub.devices).filter((d) => isPaperPrinter(d) && reachable(d.id) && d.online === true).sort((a, b) => a.id.localeCompare(b.id)));
   const outside = $derived(!!(out.weather || out.air || out.pool));
 
@@ -213,8 +211,6 @@
   </section>
 
   <div class="grid">
-    {#each papersOn as p (p.id)}<div class="printer-top"><PrinterHome id={p.id} /></div>{/each}
-    {#each coffeesOn as c (c.id)}<div class="coffee-top"><CoffeeHome id={c.id} wide /></div>{/each}
     <div class="heating"><HeatingSummary /></div>
     <div class="covers"><CoversSummary /></div>
 
@@ -247,7 +243,10 @@
 
     <div class="side">
       {#if energy.summary}<EnergyCard />{/if}
-      {#each coffeesOff as c (c.id)}<CoffeeHome id={c.id} />{/each}
+      <!-- Always small, under the electricity: the printer while it is on,
+           the coffee machine on or off. -->
+      {#each papersOn as p (p.id)}<PrinterHome id={p.id} />{/each}
+      {#each coffees as c (c.id)}<CoffeeHome id={c.id} />{/each}
       <Routines />
     </div>
 
@@ -375,12 +374,6 @@
   .heating,
   .covers {
     grid-column: span 6;
-  }
-
-  .printer-top,
-  .coffee-top {
-    grid-column: span 12;
-    container-type: inline-size;
   }
 
   /* A summary with nothing to sum up, energy unmeasured and no routine. */

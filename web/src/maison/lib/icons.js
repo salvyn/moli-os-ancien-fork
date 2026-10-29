@@ -101,6 +101,7 @@ import {
   mdiLightbulbOutline,
   mdiLightningBolt,
   mdiLock,
+  mdiLockOpenVariant,
   mdiMicrophoneOutline,
   mdiAccountVoice,
   mdiPhoneHangup,
@@ -226,6 +227,12 @@ export const icons = {
   'towel-dryer': 'M4.5 3.5a1 1 0 0 1 2 0v17a1 1 0 0 1-2 0ZM17.5 3.5a1 1 0 0 1 2 0v17a1 1 0 0 1-2 0ZM4.5 4.8h15v1.5h-15ZM4.5 7.4h15v1.5h-15ZM4.5 10h15v1.5h-15ZM4.5 13.4h15v1.5h-15ZM4.5 16h15v1.5h-15ZM4.5 18.6h15v1.5h-15Z',
   stove: mdiFireplace,
   'roof-window': 'M6 2.5H18L21.5 21.5H2.5ZM7.9 4.6 5.1 19.4H18.9L16.1 4.6ZM11.25 4.6H12.75V19.4H11.25ZM6.65 11.2H17.35L17.61 12.6H6.39Z',
+  // The VELUX quick actions: blinds down or rolled up in a roof window;
+  // a roof window from the side, its sash lifted or back in the roof.
+  'blinds-closed': 'M6 2.5H18L21.5 21.5H2.5ZM7.9 4.6 5.1 19.4H18.9L16.1 4.6ZM8.45 5.4 15.55 5.4 15.91 7.3 8.09 7.3ZM7.94 8.1 16.06 8.1 16.42 10 7.58 10ZM7.43 10.8 16.57 10.8 16.93 12.7 7.07 12.7ZM6.92 13.5 17.08 13.5 17.44 15.4 6.56 15.4ZM6.41 16.2 17.59 16.2 17.95 18.1 6.05 18.1Z',
+  'blinds-open': 'M6 2.5H18L21.5 21.5H2.5ZM7.9 4.6 5.1 19.4H18.9L16.1 4.6ZM8.45 5.4 15.55 5.4 15.97 7.6 8.03 7.6ZM12 9 15.4 12.6 13.1 12.6 13.1 17.6 10.9 17.6 10.9 12.6 8.6 12.6Z',
+  'window-open': 'M0.95 20.04 7.88 16.08 8.98 18 2.05 21.96ZM16.07 11.4 21.95 8.04 23.05 9.96 17.17 13.32ZM16.1 13.77 7.25 10.5 8.29 7.69 17.14 10.95ZM4.8 2.2 8 5.5 5.8 5.5 5.8 10 3.8 10 3.8 5.5 1.6 5.5Z',
+  'window-closed': 'M0.95 20.04 7.88 16.08 8.98 18 2.05 21.96ZM16.07 11.4 21.95 8.04 23.05 9.96 17.17 13.32ZM7.94 15.48 15.53 11.14 17.11 13.92 9.52 18.26ZM10.3 2.5 12.5 2.5 12.5 7.3 14.6 7.3 11.4 10.6 8.2 7.3 10.3 7.3Z',
   alert: mdiAlertCircleOutline,
   'arrow-top-right': mdiArrowTopRight,
   'bed-king-outline': mdiBedKingOutline,
@@ -259,6 +266,7 @@ export const icons = {
   light: mdiLightbulbOutline,
   bolt: mdiLightningBolt,
   lock: mdiLock,
+  'lock-open': mdiLockOpenVariant,
   mic: mdiMicrophoneOutline,
   talk: mdiAccountVoice,
   hangup: mdiPhoneHangup,

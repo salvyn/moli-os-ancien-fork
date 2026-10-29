@@ -9,10 +9,8 @@
   /** A coffee machine on the home page: its state, an espresso and a
    *  coffee as the machine keeps them, and today's cups hour by hour. A
    *  drink asks twice (a cup under the spout?): the first tap names it, the
-   *  second sends it. Everything else is on the Coffee page. `wide`: across
-   *  the top of the page (the machine on), today's cups beside the buttons
-   *  when there is room. */
-  let { id, wide = false } = $props();
+   *  second sends it. Everything else is on the Coffee page. */
+  let { id } = $props();
 
   const QUICK = ['espresso', 'coffee'];
 
@@ -41,7 +39,7 @@
   }
 </script>
 
-<section class="card coffee-home" class:wide>
+<section class="card coffee-home">
   <div class="card-head">
     <h2><Icon name="coffee-maker" size={18} />{t('salon.cafe.titre')}</h2>
     <span class="chip {STATE_TONE[status] ?? ''}">{stateWord(status)}</span>
@@ -74,25 +72,6 @@
 
   .coffee-home:not(:first-child) {
     margin-top: 20px;
-  }
-
-  /* Across the page: state and buttons on the left, today's cups on the
-     right, when the card is wide enough. */
-  @container (min-width: 720px) {
-    .coffee-home.wide {
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
-      column-gap: 28px;
-      align-items: start;
-    }
-
-    .wide > :not(.usage) {
-      grid-column: 1;
-    }
-
-    .wide .usage {
-      grid-column: 2;
-      grid-row: 1 / span 3;
-    }
   }
 
   .coffee-home .card-head {

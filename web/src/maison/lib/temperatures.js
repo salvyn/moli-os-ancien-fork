@@ -10,12 +10,20 @@ export function tempKey(d) {
   return KEYS.find((k) => d?.points?.some((p) => p.key === k)) ?? null;
 }
 
-/** What measures a room, as its card says its temperature: its sensors,
- *  else its heaters' and units' own probes. `[{ id, point }]`. */
+/** What measures a room, as its card averages it: its sensors, then its
+ *  heaters', stove's and units' own probes. `[{ id, point }]`. */
 export function probesOf(room) {
-  const of = (list) => list.filter((d) => tempKey(d)).map((d) => ({ id: d.id, point: `${d.id}/${tempKey(d)}` }));
-  const sensed = of(room.sensors ?? []);
-  return sensed.length ? sensed : of(room.climates ?? []);
+  return [...(room.sensors ?? []), ...(room.climates ?? [])].filter((d) => tempKey(d)).map((d) => ({ id: d.id, point: `${d.id}/${tempKey(d)}` }));
+}
+
+/** A room's temperature: the average of every device in it that reads
+ *  one (`devices`), sensors and heaters alike; offline ones left out. */
+export function roomTemperature(devices, read) {
+  const readings = devices
+    .filter((d) => d.online !== false && tempKey(d))
+    .map((d) => read(d.id, tempKey(d)))
+    .filter((x) => typeof x === 'number' && Number.isFinite(x));
+  return readings.length ? readings.reduce((a, b) => a + b, 0) / readings.length : null;
 }
 
 /** A history series as `[[ts, °C]…]` in time order: the averages of its

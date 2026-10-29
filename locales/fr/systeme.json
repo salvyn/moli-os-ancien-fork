@@ -359,6 +359,8 @@
   "systeme.infra.pc.allumer_ouvrir": "Allumer et ouvrir Claude et Codex",
   "systeme.infra.pc.pret": "Prêt : sur ton téléphone, l’appli Claude (onglet Code) pour Claude, l’appli ChatGPT (Codex) pour Codex. Le code PIN est demandé.",
   "systeme.infra.pc.ensuite": "Ensuite, sur ton téléphone, l’appli Claude (onglet Code) pour Claude, l’appli ChatGPT (Codex) pour Codex. Le code PIN est demandé.",
+  "systeme.theme.titre": "Apparence de l’écran",
+  "systeme.theme.aide": "Auto : jour ou nuit selon le soleil de la maison. Ce choix ne vaut que pour cet appareil.",
   "systeme.code.titre": "Code du tableau de bord",
   "systeme.code.pas_de_code": "La maison n’a pas encore de code : l’installation n’est pas terminée.",
   "systeme.code.terminer": "Terminer l’installation",

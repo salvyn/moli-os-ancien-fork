@@ -1,6 +1,7 @@
 <script>
   import { device, value, reachable, nameOf, act, num } from '../lib/home.svelte.js';
   import { printFile, pagesOf, isPdf, parsePages } from '../lib/paper.js';
+  import { monochrome } from '../lib/inks.js';
   import { t } from '../../lib/i18n.svelte.js';
   import Icon from './Icon.svelte';
 
@@ -36,6 +37,9 @@
             : /jaune|yellow/i.test(label)
               ? '#dfd31d'
               : 'var(--ink-3)';
+
+  // Black and white only (a laser's toner and drum): no colour to choose.
+  const mono = $derived(monochrome(inks.map((i) => i.label)));
 
   const pages = $derived(v('pages'));
   const job = $derived(v('job'));
@@ -87,7 +91,7 @@
     error = '';
     sending = { done: 0, total: pageCount, step: 'prepare' };
     try {
-      await printFile(id, file, { copies, color, pages: selected }, (p) => (sending = p));
+      await printFile(id, file, { copies, color: color && !mono, pages: selected }, (p) => (sending = p));
       sent = t('salon.papier.envoye', { nom: file.name, count: pageCount });
       file = null;
     } catch (err) {
@@ -163,10 +167,12 @@
         <button class="round small" onclick={() => (file = null)} aria-label={t('salon.papier.ne_pas_imprimer')} disabled={!!sending}><Icon name="close" size={16} /></button>
       </div>
       <div class="options">
-        <div class="seg" role="radiogroup" aria-label={t('salon.papier.couleur')}>
-          <button role="radio" aria-checked={color} class:on={color} onclick={() => (color = true)}>{t('salon.papier.couleur')}</button>
-          <button role="radio" aria-checked={!color} class:on={!color} onclick={() => (color = false)}>{t('salon.papier.noir_blanc')}</button>
-        </div>
+        {#if !mono}
+          <div class="seg" role="radiogroup" aria-label={t('salon.papier.couleur')}>
+            <button role="radio" aria-checked={color} class:on={color} onclick={() => (color = true)}>{t('salon.papier.couleur')}</button>
+            <button role="radio" aria-checked={!color} class:on={!color} onclick={() => (color = false)}>{t('salon.papier.noir_blanc')}</button>
+          </div>
+        {/if}
         <div class="stepper" aria-label={t('salon.papier.exemplaires')}>
           <button onclick={() => (copies = Math.max(1, copies - 1))} aria-label={t('salon.papier.un_de_moins')} disabled={copies <= 1}>−</button>
           <span class="num">{t('salon.papier.nb_exemplaires', { count: copies })}</span>

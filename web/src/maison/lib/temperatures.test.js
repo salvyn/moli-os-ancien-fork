@@ -1,16 +1,36 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { probesOf, lineOf, statsOf, scaleOf, valueAt } from './temperatures.js';
+import { probesOf, roomTemperature, lineOf, statsOf, scaleOf, valueAt } from './temperatures.js';
 
 const dev = (id, ...keys) => ({ id, points: keys.map((key) => ({ key })) });
 
-test('a room is measured by its sensors, else by its heaters', () => {
+test('a room is measured by its sensors and its heaters alike', () => {
   const sensor = dev('z2m:s', 'temperature', 'humidity');
   const radiator = dev('tuya:r', 'temp_current', 'target_temperature');
+  const stove = dev('micronova:p', 'temperature', 'flue_temperature');
   const door = dev('z2m:d', 'contact');
-  assert.deepEqual(probesOf({ sensors: [sensor, door], climates: [radiator] }), [{ id: 'z2m:s', point: 'z2m:s/temperature' }]);
+  assert.deepEqual(probesOf({ sensors: [sensor, door], climates: [radiator, stove] }), [
+    { id: 'z2m:s', point: 'z2m:s/temperature' },
+    { id: 'tuya:r', point: 'tuya:r/temp_current' },
+    { id: 'micronova:p', point: 'micronova:p/temperature' },
+  ]);
   assert.deepEqual(probesOf({ sensors: [door], climates: [radiator] }), [{ id: 'tuya:r', point: 'tuya:r/temp_current' }]);
   assert.deepEqual(probesOf({ sensors: [], climates: [] }), []);
+});
+
+test('the room temperature is the average of all it reads, offline left out', () => {
+  const reads = { 'z2m:s': 19, 'tuya:r': 18.5, 'micronova:p': 18.5, 'z2m:off': 30, 'z2m:none': null };
+  const read = (id) => reads[id];
+  const devices = [
+    dev('z2m:s', 'temperature'),
+    dev('tuya:r', 'temp_current'),
+    dev('micronova:p', 'temperature', 'flue_temperature'),
+    { ...dev('z2m:off', 'temperature'), online: false },
+    dev('z2m:none', 'temperature'),
+    dev('z2m:d', 'contact'),
+  ];
+  assert.equal(roomTemperature(devices, read), (19 + 18.5 + 18.5) / 3);
+  assert.equal(roomTemperature([dev('z2m:d', 'contact')], read), null);
 });
 
 test('a series becomes a line, from the value before the window to its end', () => {
