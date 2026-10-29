@@ -25,6 +25,8 @@
     const read = list.filter((d) => reachable(d.id) && typeof value(d.id, 'percent_control') === 'number');
     return {
       open: read.filter((d) => value(d.id, 'percent_control') > 0).length,
+      // All the way (100 %): « all up » is said only when every one is.
+      full: read.filter((d) => value(d.id, 'percent_control') >= 100).length,
       total: list.length,
       moving: list.some((d) => value(d.id, 'moving') === true),
     };
@@ -41,9 +43,11 @@
         said: (s) =>
           s.open === 0
             ? t('maison.fenetres.rapide.stores_tous_baisses')
-            : s.open === s.total
+            : s.full === s.total
               ? t('maison.fenetres.rapide.stores_tous_leves')
-              : t('maison.fenetres.rapide.stores_leves', { n: s.open, count: s.total }),
+              : s.full === 0
+                ? t('maison.fenetres.rapide.stores_leves_en_partie')
+                : t('maison.fenetres.rapide.stores_leves_et_partiels', { n: s.full, count: s.total, part: s.open - s.full }),
       },
       {
         key: 'windows',
@@ -96,8 +100,8 @@
               <small class:moving={row.tally.moving}>{row.tally.moving ? t('maison.fenetres.rapide.en_mouvement') : row.said(row.tally)}</small>
             </div>
             <div class="buttons">
-              {#each [row.close, row.open] as b, i (b.icon)}
-                {@const what = i === 0 ? 'close' : 'open'}
+              {#each [row.open, row.close] as b, i (b.icon)}
+                {@const what = i === 0 ? 'open' : 'close'}
                 {@const wet = b.rainy && raining}
                 <button class="go" disabled={!!busy || locked || wet} onclick={() => go(row.key, what, b.label)} title={wet ? t('maison.fenetres.rapide.pluie_refuse') : b.label}>
                   <span class="glyph"><Icon name={b.icon} size={26} /></span>
@@ -234,9 +238,11 @@
     font-weight: 600;
   }
 
+  /* Opening above closing. */
   .buttons {
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: stretch;
     gap: 8px;
   }
 
@@ -254,7 +260,7 @@
     display: inline-flex;
     align-items: center;
     gap: 10px;
-    min-width: 200px;
+    min-width: 260px;
     padding: 8px 16px 8px 8px;
     border: 0;
     border-radius: 999px;

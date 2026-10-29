@@ -86,7 +86,7 @@
   "energie.now.detail_fine": "Conso {level} · {plan} d’abonnement · mesure fine {fine}",
   "energie.now.pleines": "Pleines à {at} (dans {delay})",
   "energie.now.creuses": "Creuses à {at} (dans {delay})",
-  "energie.vs_hier": "{n} % au rythme d’hier",
+  "energie.vs_hier": "{n} % par rapport à hier",
   "energie.mois.titre": "Ce mois-ci",
   "energie.mois.facture": "Facture estimée {bill} (abonnement compris)",
   "energie.mois.fin": "Vers {cost} en fin de mois",

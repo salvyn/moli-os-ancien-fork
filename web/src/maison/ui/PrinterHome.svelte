@@ -11,11 +11,12 @@
   let { id } = $props();
 
   const d = $derived(device(id));
-  const status = $derived(value(id, 'status') ?? t('salon.papier.prete'));
+  const off = $derived(d?.online !== true);
+  const status = $derived(off ? t('salon.eteinte') : (value(id, 'status') ?? t('salon.papier.prete')));
   const STUCK = /papier|bourrage|capot|vide ou absente|arrêtée|paper|jam|cover|empty or missing|stopped/i;
   const level = $derived(onLevel(d, home.now));
   const minutes = $derived(onMinutes(d, home.now));
-  const tone = $derived(STUCK.test(status) ? 'alert' : level === 'too_long' ? 'alert' : level === 'long' || value(id, 'ink_low') ? 'warm' : 'good');
+  const tone = $derived(off ? '' : STUCK.test(status) ? 'alert' : level === 'too_long' ? 'alert' : level === 'long' || value(id, 'ink_low') ? 'warm' : 'good');
   const inks = $derived(
     (d?.points ?? [])
       .filter((p) => /^ink_\d+$/.test(p.key))

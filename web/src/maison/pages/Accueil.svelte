@@ -143,11 +143,16 @@
   // A card shows only when the house has what it shows.
   onMount(useEnergy);
   const climates = $derived(cfg.favorites?.climate ?? []);
-  // A coffee machine: its state and an espresso or a coffee, at hand, in
-  // the side column, small.
-  const coffees = $derived(Object.values(hub.devices).filter(isCoffee).sort((a, b) => a.id.localeCompare(b.id)));
-  // A paper printer: in the side column too, while it is on.
-  const papersOn = $derived(Object.values(hub.devices).filter((d) => isPaperPrinter(d) && reachable(d.id) && d.online === true).sort((a, b) => a.id.localeCompare(b.id)));
+  // A coffee machine and a paper printer: small tiles next to the
+  // electricity, at the top of the page while they are on, at the bottom
+  // while they are off.
+  const byId = (a, b) => a.id.localeCompare(b.id);
+  const coffees = $derived(Object.values(hub.devices).filter(isCoffee).sort(byId));
+  const papers = $derived(Object.values(hub.devices).filter(isPaperPrinter).sort(byId));
+  const coffeesOn = $derived(coffees.filter((d) => reachable(d.id)));
+  const coffeesOff = $derived(coffees.filter((d) => !reachable(d.id)));
+  const papersOn = $derived(papers.filter((d) => reachable(d.id) && d.online === true));
+  const papersOff = $derived(papers.filter((d) => !(reachable(d.id) && d.online === true)));
   const outside = $derived(!!(out.weather || out.air || out.pool));
 
   const tv = $derived(cfg.salon?.tv);
@@ -211,6 +216,14 @@
   </section>
 
   <div class="grid">
+    <!-- The small tiles side by side: electricity, then what is on. -->
+    <div class="smalls">
+      {#if energy.summary}<EnergyCard />{/if}
+      {#each papersOn as p (p.id)}<PrinterHome id={p.id} />{/each}
+      {#each coffeesOn as c (c.id)}<CoffeeHome id={c.id} />{/each}
+      <Routines />
+    </div>
+
     <div class="heating"><HeatingSummary /></div>
     <div class="covers"><CoversSummary /></div>
 
@@ -240,15 +253,6 @@
       {/if}
     </section>
     {/if}
-
-    <div class="side">
-      {#if energy.summary}<EnergyCard />{/if}
-      <!-- Always small, under the electricity: the printer while it is on,
-           the coffee machine on or off. -->
-      {#each papersOn as p (p.id)}<PrinterHome id={p.id} />{/each}
-      {#each coffees as c (c.id)}<CoffeeHome id={c.id} />{/each}
-      <Routines />
-    </div>
 
     {#if climates.length}
     <section class="card climate">
@@ -296,6 +300,14 @@
         <div><small>{t('maison.accueil.piscine')}</small><b class="num">{value(out.pool, 'temperature') != null ? `${num(value(out.pool, 'temperature'), 1)}°` : '—'}</b></div>
       </div>
     </a>
+    {/if}
+
+    <!-- Off: at the bottom of the page. -->
+    {#if papersOff.length || coffeesOff.length}
+      <div class="smalls">
+        {#each papersOff as p (p.id)}<PrinterHome id={p.id} />{/each}
+        {#each coffeesOff as c (c.id)}<CoffeeHome id={c.id} />{/each}
+      </div>
     {/if}
   </div>
 </div>
@@ -385,8 +397,13 @@
     grid-column: span 8;
   }
 
-  .side {
-    grid-column: span 4;
+  /* Small tiles side by side, as many as the width allows. */
+  .smalls {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+    align-items: start;
   }
 
   .climate {
@@ -579,7 +596,6 @@
       grid-column: span 12;
     }
 
-    .side,
     .doorbell {
       grid-column: span 6;
       grid-row: auto;

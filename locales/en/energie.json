@@ -86,7 +86,7 @@
   "energie.now.detail_fine": "Usage: {level} · {plan} plan · detailed reading {fine}",
   "energie.now.pleines": "Peak at {at} (in {delay})",
   "energie.now.creuses": "Off-peak at {at} (in {delay})",
-  "energie.vs_hier": "{n}% vs yesterday’s pace",
+  "energie.vs_hier": "{n}% vs yesterday",
   "energie.mois.titre": "This month",
   "energie.mois.facture": "Estimated bill {bill} (plan fee included)",
   "energie.mois.fin": "Around {cost} by the end of the month",
