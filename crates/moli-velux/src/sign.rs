@@ -47,12 +47,27 @@ impl Signer {
 
     /// Signs `position` for `window` at `now` (seconds since 1970).
     pub fn sign(&mut self, window: &str, position: i64, now: u64) -> Stamp {
+        self.stamp(now, |timestamp, nonce| {
+            format!("target_position{position}{timestamp}{nonce}{window}")
+        })
+    }
+
+    /// Signs the gateway's `scenario` (`home`: out of departure mode) at
+    /// `now`: `scenario{scenario}{timestamp}{nonce}{gateway}`.
+    pub fn sign_scenario(&mut self, gateway: &str, scenario: &str, now: u64) -> Stamp {
+        self.stamp(now, |timestamp, nonce| {
+            format!("scenario{scenario}{timestamp}{nonce}{gateway}")
+        })
+    }
+
+    /// The next second and nonce, and the message they make, signed.
+    fn stamp(&mut self, now: u64, message: impl FnOnce(u64, u32) -> String) -> Stamp {
         let (timestamp, nonce) = match self.last {
             Some((second, nonce)) if now <= second => (second, nonce + 1),
             _ => (now, 0),
         };
         self.last = Some((timestamp, nonce));
-        let message = format!("target_position{position}{timestamp}{nonce}{window}");
+        let message = message(timestamp, nonce);
         let tag = hmac::sign(&self.key, message.as_bytes());
         let hash = base64(tag.as_ref()).replace('+', "-").replace('/', "_");
         Stamp {
@@ -105,6 +120,21 @@ mod tests {
         // A new second starts again at 0.
         let later = signer.sign("w", 0, 1_700_000_001);
         assert_eq!((later.timestamp, later.nonce), (1_700_000_001, 0));
+    }
+
+    /// The departure mode left: the scenario signed with the gateway's id,
+    /// on the same nonces as the windows (hash computed apart, in Python).
+    #[test]
+    fn a_scenario_is_signed_with_the_gateway() {
+        let mut signer = Signer::new(KEY, "key-id").unwrap();
+        signer.sign("aa:bb:cc:dd:ee:04", 100, 1_700_000_000);
+        let home = signer.sign_scenario("aa:bb:cc:dd:ee:01", "home", 1_700_000_000);
+        assert_eq!((home.timestamp, home.nonce), (1_700_000_000, 1));
+        // `scenariohome17000000001aa:bb:cc:dd:ee:01`, signed.
+        assert_eq!(
+            home.hash,
+            "qem7QjufPX-WjoSEys2fnYogv6CBsvKepXwy5AKMFt8KoD1cBJSKO36a9RRSQKyfSV3KT2sQOLV5uHwn1p7BXQ=="
+        );
     }
 
     #[test]

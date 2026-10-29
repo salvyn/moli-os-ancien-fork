@@ -116,6 +116,106 @@ impl Home {
     }
 }
 
+/// The gateway's orders for a whole family of modules at once, as the app's
+/// « all » buttons: one `setstate` for all of them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Group {
+    /// Every blind, awning or shutter (`blinds`).
+    Covers,
+    /// Every roof window Moli can move (`windows`).
+    Windows,
+}
+
+impl Group {
+    #[must_use]
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Covers => "blinds",
+            Self::Windows => "windows",
+        }
+    }
+
+    #[must_use]
+    pub fn of_key(key: &str) -> Option<Self> {
+        match key {
+            "blinds" => Some(Self::Covers),
+            "windows" => Some(Self::Windows),
+            _ => None,
+        }
+    }
+
+    fn role(self) -> Role {
+        match self {
+            Self::Covers => Role::Cover,
+            Self::Windows => Role::Window,
+        }
+    }
+}
+
+impl Home {
+    /// The group orders this home has: its blinds always, its windows with
+    /// the gateway's key (`signed`). Write-only, open, stop or close; a
+    /// person's in a guarded room too, so an agent asks first.
+    #[must_use]
+    pub fn group_points(&self, signed: bool) -> Vec<PointSpec> {
+        [
+            (Group::Covers, "pilotes.velux.tous_stores"),
+            (Group::Windows, "pilotes.velux.toutes_fenetres"),
+        ]
+        .into_iter()
+        .filter(|(group, _)| {
+            self.modules
+                .iter()
+                .any(|m| m.role == group.role() && m.movable(signed))
+        })
+        .map(|(group, label)| {
+            let mut control = spec(
+                group.key(),
+                label,
+                Kind::Enum {
+                    values: ["open", "stop", "close"].map(Arc::from).to_vec(),
+                },
+                None,
+                Semantic::Control,
+            );
+            control.access = Access {
+                read: false,
+                write: true,
+            };
+            control
+        })
+        .collect()
+    }
+
+    /// The `setstate` modules for `group` going to `target`: every one of
+    /// them (a window's position signed, each with its own nonce), or the
+    /// gateway alone for windows to stop.
+    pub fn group_order(
+        &self,
+        group: Group,
+        target: Target,
+        mut signer: Option<&mut Signer>,
+        now: u64,
+    ) -> Result<Vec<Json>, String> {
+        let members: Vec<&Module> = self
+            .modules
+            .iter()
+            .filter(|m| m.role == group.role())
+            .collect();
+        if members.is_empty() {
+            return Err(moli_i18n::tr("pilotes.velux.module_inconnu"));
+        }
+        if group == Group::Windows && target == Target::Stop {
+            // One stop for the gateway stops every window.
+            return members[0].order(Target::Stop, None, now).map(|o| vec![o]);
+        }
+        members
+            .into_iter()
+            .map(|m| m.order(target, signer.as_deref_mut(), now))
+            .collect()
+    }
+}
+
 /// A module's state in one `homestatus`, `None` when it is not there (the
 /// gateway unreachable: the cloud lists it among errors).
 fn state<'a>(status: &'a Json, id: &str) -> Option<&'a Json> {
@@ -212,13 +312,17 @@ impl Module {
                     None,
                     Semantic::Other,
                 ));
-                out.push(spec(
+                // Locked (away), nothing moves; unlocked, windows may open
+                // again: an agent asks a person first, as for a window.
+                let mut departure = spec(
                     "departure",
                     "pilotes.velux.depart",
                     Kind::Binary,
                     None,
-                    Semantic::Other,
-                ));
+                    Semantic::Control,
+                );
+                departure.access.write = true;
+                out.push(departure);
             }
             Role::Window | Role::Cover => {
                 let write = self.movable(signed);
@@ -362,13 +466,44 @@ impl Module {
                     Target::Position(p.round() as i64)
                 })
                 .ok_or_else(|| moli_i18n::tr("pilotes.velux.position_invalide")),
-            ("control", Value::Text(t)) => match &**t {
+            ("control" | "blinds" | "windows", Value::Text(t)) => match &**t {
                 "open" => Ok(Target::Position(100)),
                 "close" => Ok(Target::Position(0)),
                 "stop" => Ok(Target::Stop),
                 _ => Err(moli_i18n::tr("pilotes.velux.position_invalide")),
             },
             _ => Err(moli_i18n::tr("pilotes.velux.lecture_seule")),
+        }
+    }
+
+    /// The gateway's order to lock (`away`: departure mode, nothing moves)
+    /// or unlock (`home`): the app's scenarios. Locking needs no key;
+    /// unlocking lets windows open again, so it is signed like them.
+    pub fn departure(
+        &self,
+        locked: &Value,
+        signer: Option<&mut Signer>,
+        now: u64,
+    ) -> Result<Json, String> {
+        if self.role != Role::Gateway {
+            return Err(moli_i18n::tr("pilotes.velux.lecture_seule"));
+        }
+        match locked {
+            Value::Bool(true) => Ok(json!({ "id": self.id, "scenario": "away" })),
+            Value::Bool(false) => {
+                let signer =
+                    signer.ok_or_else(|| moli_i18n::tr("pilotes.velux.sans_cle_depart"))?;
+                let stamp = signer.sign_scenario(&self.id, "home", now);
+                Ok(json!({
+                    "id": self.id,
+                    "scenario": "home",
+                    "timestamp": stamp.timestamp,
+                    "nonce": stamp.nonce,
+                    "sign_key_id": signer.id,
+                    "hash_scenario": stamp.hash,
+                }))
+            }
+            _ => Err(moli_i18n::tr("pilotes.velux.depart_invalide")),
         }
     }
 
@@ -621,9 +756,119 @@ mod tests {
                     assert!(without.is_empty(), "{}", m.name);
                     assert_eq!(with, ["percent_control", "control"], "{}", m.name);
                 }
+                Role::Gateway => {
+                    assert_eq!(without, ["departure"]);
+                    assert_eq!(with, without);
+                }
                 _ => assert!(with.is_empty(), "{}", m.name),
             }
         }
+    }
+
+    fn gateway(home: &Home) -> &Module {
+        home.modules
+            .iter()
+            .find(|m| m.role == Role::Gateway)
+            .unwrap()
+    }
+
+    #[test]
+    fn the_gateway_moves_all_blinds_and_with_the_key_all_windows() {
+        let (home, _) = kix300();
+        let keys = |signed| {
+            home.group_points(signed)
+                .iter()
+                .map(|p| (p.key.to_string(), p.access.write, p.access.read, p.semantic))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            keys(false),
+            [("blinds".into(), true, false, Semantic::Control)]
+        );
+        assert_eq!(
+            keys(true),
+            [
+                ("blinds".into(), true, false, Semantic::Control),
+                ("windows".into(), true, false, Semantic::Control)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_group_order_is_one_setstate_for_all() {
+        let (home, _) = kix300();
+        let text = |t: &str| Value::Text(t.into());
+        let target = gateway(&home).target("blinds", &text("close")).unwrap();
+        let blinds = home.group_order(Group::Covers, target, None, 0).unwrap();
+        assert_eq!(blinds.len(), 8);
+        assert!(
+            blinds
+                .iter()
+                .all(|o| o["target_position"] == 0 && o["bridge"].is_string())
+        );
+
+        assert!(
+            home.group_order(Group::Windows, Target::Position(100), None, 0)
+                .is_err(),
+            "windows without the key"
+        );
+        let mut signer =
+            Signer::new("AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=", "key-id").unwrap();
+        let windows = home
+            .group_order(
+                Group::Windows,
+                Target::Position(100),
+                Some(&mut signer),
+                1_700_000_000,
+            )
+            .unwrap();
+        assert_eq!(windows.len(), 7);
+        // Each signed with its own nonce: the cloud refuses a pair twice.
+        let nonces: Vec<_> = windows
+            .iter()
+            .map(|o| o["nonce"].as_u64().unwrap())
+            .collect();
+        assert_eq!(nonces, [0, 1, 2, 3, 4, 5, 6]);
+        assert!(
+            windows
+                .iter()
+                .all(|o| o["hash_target_position"].is_string())
+        );
+
+        let stop = home
+            .group_order(Group::Windows, Target::Stop, None, 0)
+            .unwrap();
+        assert_eq!(
+            stop,
+            [json!({ "id": "aa:bb:cc:dd:ee:01", "stop_movements": "all" })]
+        );
+    }
+
+    #[test]
+    fn the_departure_mode_locks_freely_and_unlocks_with_the_key() {
+        let (home, _) = kix300();
+        let gw = gateway(&home);
+        assert_eq!(
+            gw.departure(&Value::Bool(true), None, 0).unwrap(),
+            json!({ "id": "aa:bb:cc:dd:ee:01", "scenario": "away" })
+        );
+        assert!(
+            gw.departure(&Value::Bool(false), None, 0).is_err(),
+            "no key"
+        );
+        let mut signer =
+            Signer::new("AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=", "key-id").unwrap();
+        let home_again = gw
+            .departure(&Value::Bool(false), Some(&mut signer), 1_700_000_000)
+            .unwrap();
+        assert_eq!(home_again["scenario"], "home");
+        assert_eq!(home_again["sign_key_id"], "key-id");
+        assert_eq!(home_again["nonce"], 0);
+        assert!(home_again["hash_scenario"].is_string());
+        assert!(home_again.get("bridge").is_none(), "the gateway itself");
+        assert!(gw.departure(&Value::Int(1), None, 0).is_err());
+        let blind = module(&home, "Store grenier");
+        assert!(blind.departure(&Value::Bool(true), None, 0).is_err());
     }
 
     #[test]

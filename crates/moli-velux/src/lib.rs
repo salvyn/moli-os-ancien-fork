@@ -21,7 +21,7 @@ use moli_runtime::{BoxFuture, CommandRequest, Driver, DriverCtx};
 use serde::Deserialize;
 
 use cloud::{Cloud, LoggedOut, Refused};
-use model::{Home, Module, Role};
+use model::{Group, Home, Module, Role};
 use schedule::Schedule;
 use sign::Signer;
 
@@ -117,8 +117,11 @@ fn publish(
 ) {
     for module in &home.modules {
         let mut points = module.points(status, signed);
-        if module.role == Role::Gateway && plan.is_some() {
-            points.push(schedule::spec());
+        if module.role == Role::Gateway {
+            points.extend(home.group_points(signed));
+            if plan.is_some() {
+                points.push(schedule::spec());
+            }
         }
         ctx.upsert_device(Device {
             id: ctx.device_id(&module.id),
@@ -232,10 +235,9 @@ async fn run(config: &Config, ctx: &mut DriverCtx) -> anyhow::Result<()> {
                         command.reply(saved);
                         continue;
                     }
-                    Some(_) if departure => Err(moli_i18n::tr("pilotes.velux.mode_depart")),
                     Some(module) => {
-                        let order = Order { home: &home, module, command: &command };
-                        order.send(&mut cloud, (&email, &password), signer.as_mut()).await
+                        let order = Order { home: &home, command: &command };
+                        order.obey(module, departure, &mut cloud, (&email, &password), signer.as_mut()).await
                     }
                 };
                 if answer.is_ok() {
@@ -364,27 +366,67 @@ async fn save_plan(
 /// One command, on its way to the cloud.
 struct Order<'a> {
     home: &'a Home,
-    module: &'a Module,
     command: &'a CommandRequest,
 }
 
 impl Order<'_> {
-    /// Sends it before the hub stops waiting, logging in again once if the
-    /// token is gone. Taken: `Ok`; else why, for the family.
-    async fn send(
+    /// What the command asks of `module`, sent; `departure`: the gateway
+    /// is locked, only unlocking it goes.
+    async fn obey(
         &self,
+        module: &Module,
+        departure: bool,
         cloud: &mut Cloud,
-        (email, password): (&str, &str),
-        mut signer: Option<&mut Signer>,
+        credentials: (&str, &str),
+        signer: Option<&mut Signer>,
     ) -> Result<(), String> {
-        if !self.module.movable(signer.is_some()) {
-            return Err(moli_i18n::tr(if self.module.role == Role::Window {
+        let (key, value) = (&*self.command.key, &self.command.value);
+        if module.role == Role::Gateway && key == "departure" {
+            // Locking or unlocking: allowed whatever the mode.
+            return self
+                .send(cloud, credentials, signer, |signer, now| {
+                    module.departure(value, signer, now).map(|o| vec![o])
+                })
+                .await;
+        }
+        if departure {
+            return Err(moli_i18n::tr("pilotes.velux.mode_depart"));
+        }
+        if module.role == Role::Gateway {
+            let group =
+                Group::of_key(key).ok_or_else(|| moli_i18n::tr("pilotes.velux.lecture_seule"))?;
+            let target = module.target(key, value)?;
+            return self
+                .send(cloud, credentials, signer, |signer, now| {
+                    self.home.group_order(group, target, signer, now)
+                })
+                .await;
+        }
+        if !module.movable(signer.is_some()) {
+            return Err(moli_i18n::tr(if module.role == Role::Window {
                 "pilotes.velux.sans_cle"
             } else {
                 "pilotes.velux.lecture_seule"
             }));
         }
-        let target = self.module.target(&self.command.key, &self.command.value)?;
+        let target = module.target(key, value)?;
+        self.send(cloud, credentials, signer, |signer, now| {
+            module.order(target, signer, now).map(|o| vec![o])
+        })
+        .await
+    }
+
+    /// Sends the modules `build` makes (signed again on each attempt: a
+    /// nonce is never sent twice) before the hub stops waiting, logging in
+    /// again once if the token is gone. Taken: `Ok`; else why, for the
+    /// family.
+    async fn send(
+        &self,
+        cloud: &mut Cloud,
+        (email, password): (&str, &str),
+        mut signer: Option<&mut Signer>,
+        mut build: impl FnMut(Option<&mut Signer>, u64) -> Result<Vec<serde_json::Value>, String>,
+    ) -> Result<(), String> {
         for attempt in 0..2 {
             let left = self
                 .command
@@ -393,11 +435,8 @@ impl Order<'_> {
             if left.is_zero() {
                 break;
             }
-            // Signed again on each attempt: a nonce is never sent twice.
-            let entry = self
-                .module
-                .order(target, signer.as_deref_mut(), unix_now())?;
-            let result = cloud.set_state(&self.home.setstate(&[entry]), left).await;
+            let modules = build(signer.as_deref_mut(), unix_now())?;
+            let result = cloud.set_state(&self.home.setstate(&modules), left).await;
             match result {
                 Ok(()) => return Ok(()),
                 Err(e) if e.is::<LoggedOut>() && attempt == 0 => {
