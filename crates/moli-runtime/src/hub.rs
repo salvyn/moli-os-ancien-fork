@@ -40,8 +40,13 @@ pub struct HubOptions {
     /// Encrypted store for credentials drivers obtain at runtime, with its
     /// 64-hex-digit master key. `None` disables it (pairing impossible).
     pub secrets: Option<(PathBuf, MasterKey)>,
-    /// Protected rooms and quiet hours (from the configuration file only).
+    /// Protected rooms and quiet hours (from the configuration file). The
+    /// protected rooms a person saved from the dashboard (`guard_rooms_path`)
+    /// replace the file's list.
     pub guard: GuardPolicy,
+    /// Where the protected rooms edited from the dashboard are kept. `None`
+    /// keeps them in memory only.
+    pub guard_rooms_path: Option<PathBuf>,
     pub event_capacity: usize,
     pub command_timeout: Duration,
 }
@@ -56,6 +61,7 @@ impl Default for HubOptions {
             journal_capacity: 500,
             secrets: None,
             guard: GuardPolicy::default(),
+            guard_rooms_path: None,
             event_capacity: 1024,
             command_timeout: Duration::from_secs(5),
         }
@@ -168,6 +174,15 @@ fn clean_label(s: &str) -> String {
         .collect()
 }
 
+/// A room name as the guard keeps it: single spaces, no control characters,
+/// never cut short (a room cut short would match nothing).
+fn clean_room(s: &str) -> String {
+    s.split(|c: char| c.is_whitespace() || c.is_control())
+        .filter(|w| !w.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 impl LabelPatch {
     fn apply(self, current: Label) -> Label {
         let merge = |patch: Option<String>, current: Option<String>| match patch {
@@ -229,6 +244,11 @@ struct Inner {
     events: broadcast::Sender<Event>,
     /// Serializes label writes so the file always matches the model.
     label_write: tokio::sync::Mutex<()>,
+    /// The policy in force: the configuration file's, its protected rooms
+    /// replaced by the dashboard's once a person has saved some.
+    guard: RwLock<GuardPolicy>,
+    /// Serializes protected-room writes so the file always matches the policy.
+    guard_write: tokio::sync::Mutex<()>,
     /// Where each instance last reached its device.
     addresses: Mutex<addresses::Book>,
     /// Serializes address writes so the file always matches the book.
@@ -247,6 +267,46 @@ struct Inner {
     voice: std::sync::OnceLock<Arc<dyn crate::voice::VoiceBrain>>,
     opts: HubOptions,
     started: Instant,
+}
+
+/// Longest room name, and most protected rooms, a person may save.
+const MAX_ROOM: usize = 80;
+const MAX_PROTECTED: usize = 64;
+
+/// Why protected rooms were not saved.
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum GuardError {
+    #[error("{0}")]
+    Invalid(String),
+    #[error("cannot write the protected rooms: {0}")]
+    Io(String),
+}
+
+/// `guard.json`: the protected rooms a person saved from the dashboard.
+#[derive(Serialize, Deserialize)]
+struct GuardRoomsFile {
+    protected_rooms: Vec<String>,
+}
+
+/// The saved protected rooms, if there are some and they read. An unreadable
+/// file is *not* silently dropped to nothing: the configuration file's list
+/// stays (protection never relaxes by accident).
+fn load_guard_rooms(path: &std::path::Path) -> Option<Vec<String>> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => {
+            tracing::error!(file = %path.display(), error = %e, "saved protected rooms unreadable, the configuration file's used");
+            return None;
+        }
+    };
+    match serde_json::from_str::<GuardRoomsFile>(&text) {
+        Ok(file) => Some(file.protected_rooms),
+        Err(e) => {
+            tracing::error!(file = %path.display(), error = %e, "saved protected rooms unreadable, the configuration file's used");
+            None
+        }
+    }
 }
 
 /// Two screens showing the same camera live cost one fetch, not two.
@@ -343,6 +403,10 @@ impl Hub {
             },
             None => (None, Some(moli_i18n::tr!("serveur.coffre.cle_absente"))),
         };
+        let mut guard = opts.guard.clone();
+        if let Some(rooms) = opts.guard_rooms_path.as_deref().and_then(load_guard_rooms) {
+            guard.protected_rooms = rooms;
+        }
         let (events, _) = broadcast::channel(opts.event_capacity.max(16));
         Ok(Self(Arc::new(Inner {
             model: RwLock::new(Model {
@@ -360,6 +424,8 @@ impl Hub {
             secrets_problem,
             events,
             label_write: tokio::sync::Mutex::new(()),
+            guard: RwLock::new(guard),
+            guard_write: tokio::sync::Mutex::new(()),
             addresses: Mutex::new(book),
             address_write: tokio::sync::Mutex::new(()),
             state_dirty: AtomicBool::new(false),
@@ -556,10 +622,7 @@ impl Hub {
             .map(|(device, _)| self.rooms_of(&device))
             .unwrap_or_default();
         let rooms: Vec<&str> = rooms.iter().map(String::as_str).collect();
-        self.0
-            .opts
-            .guard
-            .check(&rooms, origin, jiff::Timestamp::now())
+        self.guard().check(&rooms, origin, jiff::Timestamp::now())
     }
 
     /// Whether the point is an order to a machine at work.
@@ -618,9 +681,7 @@ impl Hub {
                 .collect()
         };
         let known: Vec<&str> = known.iter().map(String::as_str).collect();
-        self.0
-            .opts
-            .guard
+        self.guard()
             .protected_rooms
             .iter()
             .filter(|p| !known.iter().any(|k| crate::guard::same_room(p, k)))
@@ -999,12 +1060,94 @@ impl Hub {
     /// How the dashboard is recognized as the household.
     #[must_use]
     pub fn dashboard(&self) -> crate::guard::Dashboard {
-        self.0.opts.guard.dashboard
+        self.guard().dashboard
+    }
+
+    fn guard(&self) -> RwLockReadGuard<'_, GuardPolicy> {
+        self.0.guard.read().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The protected rooms in force, in the order they were written.
+    #[must_use]
+    pub fn protected_rooms(&self) -> Vec<String> {
+        self.guard().protected_rooms.clone()
+    }
+
+    /// Every room a device is in, by the user's labels or the source
+    /// system's own: what a person may choose to protect. Sorted, each
+    /// name once (accents and case ignored).
+    #[must_use]
+    pub fn known_rooms(&self) -> Vec<String> {
+        let mut rooms: Vec<String> = {
+            let model = self.read();
+            model
+                .labels
+                .values()
+                .filter_map(|l| l.room.clone())
+                .chain(
+                    model
+                        .devices
+                        .values()
+                        .filter_map(|d| d.native_room.as_deref().map(str::to_owned)),
+                )
+                .map(|r| clean_room(&r))
+                .filter(|r| !r.is_empty())
+                .collect()
+        };
+        rooms.sort_by_key(|r| r.to_lowercase());
+        rooms.dedup_by(|a, b| crate::guard::same_room(a, b));
+        rooms
+    }
+
+    /// Replaces the protected rooms (a person, with the code, at the
+    /// dashboard): checked, written to `guard.json`, in force at once. Returns
+    /// the list as kept (trimmed, each room once). `quiet_hours`,
+    /// `protect_unassigned` and `dashboard` stay the configuration file's.
+    pub async fn set_protected_rooms(&self, rooms: Vec<String>) -> Result<Vec<String>, GuardError> {
+        let mut kept: Vec<String> = Vec::new();
+        for room in rooms {
+            let room = clean_room(&room);
+            if room.is_empty() {
+                continue;
+            }
+            if room.chars().count() > MAX_ROOM {
+                return Err(GuardError::Invalid(format!(
+                    "a room name is {MAX_ROOM} characters at most"
+                )));
+            }
+            if !kept.iter().any(|k| crate::guard::same_room(k, &room)) {
+                kept.push(room);
+            }
+        }
+        if kept.len() > MAX_PROTECTED {
+            return Err(GuardError::Invalid(format!(
+                "{MAX_PROTECTED} protected rooms at most"
+            )));
+        }
+        let _write = self.0.guard_write.lock().await;
+        if let Some(path) = &self.0.opts.guard_rooms_path {
+            let text = serde_json::to_string_pretty(&GuardRoomsFile {
+                protected_rooms: kept.clone(),
+            })
+            .map_err(|e| GuardError::Io(e.to_string()))?
+                + "\n";
+            crate::files::save(path, text.into_bytes(), crate::files::Mode::Shared)
+                .await
+                .map_err(|e| GuardError::Io(e.to_string()))?;
+        }
+        self.0
+            .guard
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .protected_rooms
+            .clone_from(&kept);
+        tracing::info!(rooms = ?kept, "protected rooms saved from the dashboard");
+        Ok(kept)
     }
 
     #[must_use]
     pub fn guard_status(&self) -> GuardStatus {
-        let mut status = self.0.opts.guard.status(jiff::Timestamp::now());
+        let mut status = self.guard().status(jiff::Timestamp::now());
         status.unmatched_protected_rooms = self.unmatched_protected_rooms();
         status
     }
@@ -1070,9 +1213,7 @@ impl Hub {
         patch.room.as_ref()?;
         let rooms = self.rooms_of(device);
         let rooms: Vec<&str> = rooms.iter().map(String::as_str).collect();
-        self.0
-            .opts
-            .guard
+        self.guard()
             .room_change_needs_human(&rooms)
             .map(|(hold, why)| {
                 (
@@ -1533,7 +1674,7 @@ impl Hub {
     pub fn protected_room(&self, device: &DeviceId) -> Option<String> {
         let rooms = self.rooms_of(device);
         let rooms: Vec<&str> = rooms.iter().map(String::as_str).collect();
-        let guard = &self.0.opts.guard;
+        let guard = self.guard();
         if let Some(room) = guard.protected(&rooms) {
             return Some(room.to_owned());
         }

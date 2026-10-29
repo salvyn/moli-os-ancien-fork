@@ -821,3 +821,5 @@ Restent ouverts (non urgents) :
 - le commentaire de `crates/moli-api/src/lib.rs` ne liste ni `/api/system`, ni
   `/api/home`, `/api/bench`, `/api/history`, `/api/devices/{id}/snapshot` ; la plupart des
   handlers de `rest.rs` et `automations.rs` n'ont pas de commentaire de documentation.
+
+- `GET /api/guard/rooms` : pièces protégées et pièces connues ; `PUT /api/guard/rooms` `{protected_rooms}` : remplace la liste (session avec code seulement, jamais un agent), gardée dans `data/guard.json` qui l'emporte sur `[guard] protected_rooms` de `moli.toml`. Carte « Pièces protégées » de la page Système (`ui/ProtectedRooms.svelte`) : le code est demandé dès l'ouverture de l'éditeur ; aucune option ne la déprotège.

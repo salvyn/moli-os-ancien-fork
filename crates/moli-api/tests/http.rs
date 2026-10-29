@@ -514,6 +514,45 @@ async fn only_a_person_changes_the_electricity_contracts() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// The protected rooms: read by the household, changed by a person (the
+/// code) only, kept across a restart.
+#[tokio::test]
+async fn only_a_person_changes_the_protected_rooms() {
+    let dir = std::env::temp_dir().join(format!("moli-http-guard-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let hub = Hub::new(moli_runtime::HubOptions {
+        guard_rooms_path: Some(dir.join("guard.json")),
+        ..moli_runtime::HubOptions::default()
+    })
+    .unwrap();
+    let options = moli_api::Options {
+        ui_pin: Some(moli_api::UiPin::new("482915")),
+        ..moli_api::Options::default()
+    };
+    let addr = serve(&hub, &options).await;
+    let ui = "x-moli-origin: ui\r\n";
+    let new = json!({ "protected_rooms": ["  Chambre   Haute ", "chambre haute", "Bureau"] });
+    let (status, body) = request_with(&addr, "PUT", "/api/guard/rooms", Some(&new), ui).await;
+    assert_eq!(status, 403, "{body}");
+    assert!(hub.protected_rooms().is_empty());
+
+    let pin = pin_session(&addr, "482915").await;
+    let (status, body) = request_with(&addr, "PUT", "/api/guard/rooms", Some(&new), &pin).await;
+    assert_eq!(status, 200, "{body}");
+    let (_, body) = request_with(&addr, "GET", "/api/guard/rooms", None, ui).await;
+    let got: Json = serde_json::from_str(&body).unwrap();
+    assert_eq!(got["protected_rooms"], json!(["Chambre Haute", "Bureau"]));
+
+    let again = Hub::new(moli_runtime::HubOptions {
+        guard_rooms_path: Some(dir.join("guard.json")),
+        ..moli_runtime::HubOptions::default()
+    })
+    .unwrap();
+    assert_eq!(again.protected_rooms(), ["Chambre Haute", "Bureau"]);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 /// What the satellites heard: switched on and listened to by a person only,
 /// never by any device of the house.
 #[tokio::test]

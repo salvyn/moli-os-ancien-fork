@@ -261,6 +261,14 @@ fn people(
     (Arc::new(humans), gate, persons)
 }
 
+/// The guard: the protected rooms (read by the house, changed by a person).
+fn guard_routes() -> Router<Hub> {
+    Router::new().route(
+        "/api/guard/rooms",
+        get(rest::guard_rooms).put(rest::set_guard_rooms),
+    )
+}
+
 /// Moli: the conversation, the voice, its history and its settings.
 fn assistant_routes() -> Router<Hub> {
     Router::new()
@@ -318,6 +326,7 @@ pub fn router(hub: Hub, shutdown: CancellationToken, options: &Options) -> Route
             "/api/energy/contracts",
             get(rest::energy_contracts).put(rest::set_energy_contracts),
         )
+        .merge(guard_routes())
         .merge(assistant_routes())
         .route(
             "/api/automations",

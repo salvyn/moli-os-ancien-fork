@@ -9,6 +9,7 @@
   import PeopleCard from '../ui/PeopleCard.svelte';
   import PagesCard from '../ui/PagesCard.svelte';
   import ThemeCard from '../ui/ThemeCard.svelte';
+  import ProtectedRooms from '../ui/ProtectedRooms.svelte';
   import { hub, home } from '../lib/home.svelte.js';
   import { t, locale } from '../../lib/i18n.svelte.js';
 
@@ -180,6 +181,8 @@
   <ThemeCard />
 
   <DashboardCode />
+
+  <ProtectedRooms />
 
   <AssistantSettings />
 

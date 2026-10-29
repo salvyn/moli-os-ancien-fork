@@ -114,6 +114,8 @@
   "serveur.energie.lecture_seule": "read-only",
   "serveur.energie.contrats_humain": "only a person (with the code) can change the electricity contract",
   "serveur.energie.contrats_refuses": "contract refused: {raison}",
+  "serveur.garde.pieces_humain": "only a person (with the code) can change the protected rooms",
+  "serveur.garde.pieces_refusees": "protected rooms refused: {raison}",
   "serveur.energie.appareil": "Energy",
   "serveur.energie.modele": "Meters",
   "serveur.energie.point.today_kwh": "Usage today",

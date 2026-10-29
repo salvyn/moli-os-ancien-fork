@@ -25,8 +25,8 @@ pub mod voice;
 pub use addresses::KnownAddress;
 pub use driver::{BoxFuture, CommandRequest, Driver, DriverCtx, MediaPublisher};
 pub use hub::{
-    ApprovalError, CORE_NAMESPACE, CommandError, DeviceView, DriverView, Hub, HubOptions,
-    LabelError, LabelPatch, MAX_LABEL, Snapshot,
+    ApprovalError, CORE_NAMESPACE, CommandError, DeviceView, DriverView, GuardError, Hub,
+    HubOptions, LabelError, LabelPatch, MAX_LABEL, Snapshot,
 };
 pub use secrets::{MasterKey, forget_secret, set_secret};
 pub use stats::Stats;

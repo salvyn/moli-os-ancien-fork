@@ -27,14 +27,22 @@
 
 <section class="card printer-home">
   <div class="card-head">
-    <h2><Icon name="printer" size={18} />{nameOf(id)}</h2>
-    <span class="chip {tone}">{status}</span>
+    <h2><Icon name="printer" size={18} /><span class="name">{nameOf(id)}</span></h2>
     <a class="more" href="#/impression" aria-label={t('maison.accueil.imprimante_page')}><Icon name="arrow-top-right" size={18} /></a>
   </div>
-  <p class="line" class:alert={level === 'too_long'} class:warm={level === 'long'}>
-    {#if minutes != null}{t('maison.accueil.imprimante_allumee', { time: duration(minutes) })}{:else}<span class="muted">—</span>{/if}
-    {#each inks as ink (ink.key)}<span class="num ink" class:low={ink.level <= 15}>{ink.label} {num(ink.level, 0)} %</span>{/each}
-  </p>
+  <div class="state"><span class="chip {tone}">{status}</span></div>
+  <dl class="figures">
+    {#each inks as ink (ink.key)}
+      <div class="fig" class:low={ink.level <= 15}>
+        <dt>{ink.label}</dt>
+        <dd class="num">{num(ink.level, 0)} %</dd>
+      </div>
+    {/each}
+    <div class="fig" class:alert={level === 'too_long'} class:warm={level === 'long'}>
+      <dt>{t('maison.accueil.imprimante_depuis')}</dt>
+      <dd class="num">{#if minutes != null}{duration(minutes)}{:else}<span class="muted">—</span>{/if}</dd>
+    </div>
+  </dl>
 </section>
 
 <style>
@@ -48,6 +56,7 @@
     margin-top: 20px;
   }
 
+  /* The name on one clean line, the link to the printer page at its end. */
   .printer-home .card-head {
     margin-bottom: 0;
     justify-content: flex-start;
@@ -56,27 +65,66 @@
 
   .card-head h2 {
     flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
-  .line {
+  .name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .state {
     display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    gap: 6px 14px;
-    font-size: 13.5px;
+  }
+
+  .state .chip {
+    max-width: 100%;
+  }
+
+  /* The figures along the bottom: label above, value below, one column each. */
+  .figures {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: 8px 14px;
+    margin: 0;
+    padding-top: 10px;
+    border-top: 1px solid var(--line, rgba(128, 128, 128, 0.22));
+  }
+
+  .fig {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
     color: var(--ink-2);
   }
 
-  .line.warm {
+  .fig dt {
+    font-size: 12px;
+    color: var(--ink-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .fig dd {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 650;
+    white-space: nowrap;
+  }
+
+  .fig.warm dd {
     color: var(--warm-ink);
   }
 
-  .line.alert {
-    color: var(--alert);
-    font-weight: 650;
-  }
-
-  .ink.low {
+  .fig.alert dd,
+  .fig.low dd {
     color: var(--alert);
   }
 

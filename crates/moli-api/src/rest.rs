@@ -7,7 +7,7 @@ use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
 use moli_core::{DeviceId, Origin, PointId, Value};
 use moli_runtime::guard::Dashboard;
-use moli_runtime::{ApprovalError, CommandError, Hub, LabelError, LabelPatch};
+use moli_runtime::{ApprovalError, CommandError, GuardError, Hub, LabelError, LabelPatch};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -910,6 +910,52 @@ pub(crate) async fn set_energy_contracts(
         Err(moli_energy::EnergyError::Invalid(why)) => error(
             StatusCode::UNPROCESSABLE_ENTITY,
             &moli_i18n::tr!("serveur.energie.contrats_refuses", raison = why),
+        ),
+        Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+    }
+}
+
+/// `GET /api/guard/rooms`: the protected rooms, and every room a device is
+/// in (what may be protected), for the System page to edit.
+pub(crate) async fn guard_rooms(State(hub): State<Hub>) -> Response {
+    Json(json!({
+        "protected_rooms": hub.protected_rooms(),
+        "known_rooms": hub.known_rooms(),
+    }))
+    .into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct GuardRoomsBody {
+    protected_rooms: Vec<String>,
+}
+
+/// `PUT /api/guard/rooms`: a person (code) replaces the protected rooms; in
+/// force at once. Only a PIN session: no agent, and not the household's
+/// dashboard without a code. There is no way to switch that off.
+pub(crate) async fn set_guard_rooms(
+    State(hub): State<Hub>,
+    Extension(humans): Extension<Arc<Sessions>>,
+    caller: Caller,
+    headers: HeaderMap,
+    Json(body): Json<GuardRoomsBody>,
+) -> Response {
+    if !humans.is_human(&headers, &caller.key) {
+        return error(
+            StatusCode::FORBIDDEN,
+            &moli_i18n::tr!("serveur.garde.pieces_humain"),
+        );
+    }
+    match hub.set_protected_rooms(body.protected_rooms).await {
+        Ok(rooms) => Json(json!({
+            "protected_rooms": rooms,
+            "known_rooms": hub.known_rooms(),
+        }))
+        .into_response(),
+        Err(GuardError::Invalid(why)) => error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            &moli_i18n::tr!("serveur.garde.pieces_refusees", raison = why),
         ),
         Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }

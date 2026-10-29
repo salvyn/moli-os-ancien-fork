@@ -407,6 +407,7 @@ mod tests {
             (Method::POST, "/api/session/setup"),
             (Method::POST, "/api/machines/pc/remote"),
             (Method::PUT, "/api/energy/contracts"),
+            (Method::PUT, "/api/guard/rooms"),
             (Method::POST, "/api/automations/soir/run/again"),
             (Method::POST, "/api/approvals/"),
         ] {
@@ -481,6 +482,7 @@ mod tests {
             "/api/energy",
             "/api/energy/series",
             "/api/energy/contracts",
+            "/api/guard/rooms",
             "/api/bench",
             "/api/system",
             "/api/automations",
@@ -493,6 +495,7 @@ mod tests {
         assert!(!guest_allowed(&Method::POST, "/api/mobile/register"));
         assert!(!guest_allowed(&Method::PUT, "/api/zones"));
         assert!(!guest_allowed(&Method::PUT, "/api/energy/contracts"));
+        assert!(!guest_allowed(&Method::PUT, "/api/guard/rooms"));
         assert!(!guest_allowed(&Method::POST, "/api/people"));
     }
 

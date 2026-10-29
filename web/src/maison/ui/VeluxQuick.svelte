@@ -28,6 +28,8 @@
       // All the way (100 %): « all up » is said only when every one is.
       full: read.filter((d) => value(d.id, 'percent_control') >= 100).length,
       total: list.length,
+      // Every window at the vent bar (10 %): « ventilation en cours ».
+      venting: read.length > 0 && read.length === list.length && read.every((d) => value(d.id, 'percent_control') === 10),
       moving: list.some((d) => value(d.id, 'moving') === true),
     };
   }
@@ -58,7 +60,9 @@
         // Between opening and closing: every window at 10 %, the vent bar.
         air: { label: t('maison.fenetres.rapide.aerer_fenetres'), hint: t('maison.fenetres.rapide.aerer_aide'), icon: 'window-vent', rainy: true },
         said: (s) =>
-          s.open === 0 ? t('maison.fenetres.rapide.fenetres_toutes_fermees') : t('maison.fenetres.rapide.fenetres_ouvertes', { n: s.open, count: s.total }),
+          s.venting
+            ? t('maison.fenetres.rapide.ventilation_en_cours')
+            : s.open === 0 ? t('maison.fenetres.rapide.fenetres_toutes_fermees') : t('maison.fenetres.rapide.fenetres_ouvertes', { n: s.open, count: s.total }),
       },
     ].filter((r) => gateway && writable(gateway, r.key) && r.tally.total),
   );
