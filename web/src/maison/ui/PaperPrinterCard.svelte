@@ -1,13 +1,17 @@
 <script>
-  import { device, value, reachable, nameOf, act, num } from '../lib/home.svelte.js';
-  import { printFile, pagesOf, isPdf, parsePages } from '../lib/paper.js';
+  import { device, value, reachable, nameOf, act, num, readPref, savePref } from '../lib/home.svelte.js';
+  import { printFile, printDots, pagesOf, isPdf, parsePages } from '../lib/paper.js';
+  import { PAPERS, MEDIA, DENSITY } from '../lib/sheet.js';
   import { monochrome } from '../lib/inks.js';
   import { t } from '../../lib/i18n.svelte.js';
   import Icon from './Icon.svelte';
 
   /** The paper printer: its state in words, each cartridge (or toner and
    *  drum), the pages it has printed, the last print,
-   *  and printing a photo or a PDF from here (pages made in the browser). */
+   *  and printing a photo or a PDF from here (pages made in the browser).
+   *  A laser that takes only Brother's language gets its sheets as dots,
+   *  with what its own driver offers: paper, 2 or 4 pages a sheet, real
+   *  size, both sides by hand, toner saving, density. */
   let { id } = $props();
 
   const d = $derived(device(id));
@@ -53,6 +57,22 @@
   let color = $state(true);
   let which = $state('');
   let sending = $state(null); // { done, total, step }
+
+  // Sheets as dots: the paper and the toner are kept for next time.
+  const dots = $derived(v('language') === 'brother-hbp');
+  const kept = (key, fallback, known) => {
+    const value = readPref(key, fallback);
+    return known(value) ? value : fallback;
+  };
+  let paper = $state(kept('impression-papier', 'A4', (p) => p in PAPERS));
+  let media = $state(kept('impression-type', 'PLAIN', (m) => MEDIA.includes(m)));
+  let density = $state(kept('impression-densite', 'normal', (d) => d in DENSITY));
+  let tonerSave = $state(readPref('impression-economie', 'false') === 'true');
+  let perSheet = $state(1);
+  let actual = $state(false);
+  let twoSided = $state(false);
+  /** While the sheets are turned over: { go, stop }. */
+  let turning = $state(null);
   let error = $state('');
   let sent = $state('');
 
@@ -65,6 +85,9 @@
     file = f;
     count = 0;
     which = '';
+    perSheet = 1;
+    actual = false;
+    twoSided = false;
     try {
       if (isPdf(f)) {
         const pages = await pagesOf(f);
@@ -81,6 +104,22 @@
 
   const selected = $derived(count > 1 ? parsePages(which, count) : null);
   const pageCount = $derived(selected ? selected.length : count);
+  const sheets = $derived(Math.ceil(pageCount / perSheet));
+
+  /** Waits for the person to put the printed sheets back (or stop). */
+  const turnOver = () =>
+    new Promise((resolve, reject) => {
+      turning = {
+        go: () => {
+          turning = null;
+          resolve();
+        },
+        stop: () => {
+          turning = null;
+          reject(new Error(t('salon.papier.recto_abandon')));
+        },
+      };
+    });
 
   async function go() {
     if (!file || sending) return;
@@ -91,13 +130,19 @@
     error = '';
     sending = { done: 0, total: pageCount, step: 'prepare' };
     try {
-      await printFile(id, file, { copies, color: color && !mono, pages: selected }, (p) => (sending = p));
+      if (dots) {
+        const options = { copies, pages: selected, paper, media, tonerSave, density: DENSITY[density], perSheet, actual, twoSided: twoSided && sheets > 1 };
+        await printDots(id, file, options, (p) => (sending = p), turnOver);
+      } else {
+        await printFile(id, file, { copies, color: color && !mono, pages: selected }, (p) => (sending = p));
+      }
       sent = t('salon.papier.envoye', { nom: file.name, count: pageCount });
       file = null;
     } catch (err) {
       error = err.partial ? err.message : t('salon.papier.pas_imprime', { message: err.message });
     } finally {
       sending = null;
+      turning = null;
     }
   }
 
@@ -167,7 +212,8 @@
         <button class="round small" onclick={() => (file = null)} aria-label={t('salon.papier.ne_pas_imprimer')} disabled={!!sending}><Icon name="close" size={16} /></button>
       </div>
       <div class="options">
-        {#if !mono}
+        <!-- Brother's language is black only. -->
+        {#if !mono && !dots}
           <div class="seg" role="radiogroup" aria-label={t('salon.papier.couleur')}>
             <button role="radio" aria-checked={color} class:on={color} onclick={() => (color = true)}>{t('salon.papier.couleur')}</button>
             <button role="radio" aria-checked={!color} class:on={!color} onclick={() => (color = false)}>{t('salon.papier.noir_blanc')}</button>
@@ -185,10 +231,85 @@
           </label>
         {/if}
       </div>
+      {#if dots}
+        <div class="options">
+          <label class="pages">
+            <span>{t('salon.papier.format')}</span>
+            <select bind:value={paper} onchange={() => savePref('impression-papier', paper)} disabled={!!sending}>
+              {#each Object.keys(PAPERS) as p (p)}<option value={p}>{t(`salon.papier.format_${p}`)}</option>{/each}
+            </select>
+          </label>
+          <label class="pages">
+            <span>{t('salon.papier.type')}</span>
+            <select bind:value={media} onchange={() => savePref('impression-type', media)} disabled={!!sending}>
+              {#each MEDIA as m (m)}<option value={m}>{t(`salon.papier.type_${m}`)}</option>{/each}
+            </select>
+          </label>
+        </div>
+        <div class="options">
+          {#if pageCount > 1}
+            <div class="pages">
+              <span>{t('salon.papier.par_feuille')}</span>
+              <div class="seg" role="radiogroup" aria-label={t('salon.papier.par_feuille')}>
+                {#each [1, 2, 4] as n (n)}
+                  <button role="radio" aria-checked={perSheet === n} class:on={perSheet === n} onclick={() => (perSheet = n)} disabled={!!sending}>{n}</button>
+                {/each}
+              </div>
+            </div>
+          {/if}
+          {#if isPdf(file) && perSheet === 1}
+            <div class="seg" role="radiogroup" aria-label={t('salon.papier.taille')}>
+              <button role="radio" aria-checked={!actual} class:on={!actual} onclick={() => (actual = false)} disabled={!!sending}>{t('salon.papier.ajuster')}</button>
+              <button role="radio" aria-checked={actual} class:on={actual} onclick={() => (actual = true)} disabled={!!sending}>{t('salon.papier.taille_reelle')}</button>
+            </div>
+          {/if}
+          <div class="seg" role="radiogroup" aria-label={t('salon.papier.densite')}>
+            {#each Object.keys(DENSITY) as d (d)}
+              <button
+                role="radio"
+                aria-checked={density === d}
+                class:on={density === d}
+                onclick={() => {
+                  density = d;
+                  savePref('impression-densite', d);
+                }}
+                disabled={!!sending}>{t(`salon.papier.densite_${d}`)}</button
+              >
+            {/each}
+          </div>
+        </div>
+        <div class="options">
+          <label class="check">
+            <input type="checkbox" bind:checked={tonerSave} onchange={() => savePref('impression-economie', String(tonerSave))} disabled={!!sending} />
+            {t('salon.papier.economie')}
+          </label>
+          {#if sheets > 1}
+            <label class="check">
+              <input type="checkbox" bind:checked={twoSided} disabled={!!sending} />
+              {t('salon.papier.recto_verso')}
+            </label>
+          {/if}
+        </div>
+        {#if twoSided && sheets > 1}<p class="note muted">{t('salon.papier.recto_verso_aide')}</p>{/if}
+      {/if}
+      {#if turning}
+        <div class="turn" role="alert">
+          <b>{t('salon.papier.retourner_titre')}</b>
+          <p>{t('salon.papier.retourner_aide')}</p>
+          <div class="turn-actions">
+            <button class="primary" onclick={turning.go}>{t('salon.papier.continuer')}</button>
+            <button class="ghost danger" onclick={turning.stop}>{t('salon.papier.arreter')}</button>
+          </div>
+        </div>
+      {/if}
       <button class="primary" onclick={go} disabled={!!sending || !count || !ok}>
         <Icon name="printer" size={18} />
         {#if sending}
-          {sending.step === 'prepare' ? t('salon.papier.preparation') : sending.step === 'attend' ? t('salon.papier.file_pleine') : t('salon.papier.envoi')} {Math.min(sending.done + 1, sending.total)}/{sending.total}…
+          {#if sending.step === 'retourner'}
+            {t('salon.papier.retourner_titre')}…
+          {:else}
+            {sending.step === 'prepare' ? t('salon.papier.preparation') : sending.step === 'attend' ? t('salon.papier.file_pleine') : t('salon.papier.envoi')} {Math.min(sending.done + 1, sending.total)}/{sending.total}…
+          {/if}
         {:else}
           {pageCount > 1 ? t('salon.papier.imprimer_pages', { count: pageCount }) : t('salon.papier.imprimer')}
         {/if}
@@ -456,6 +577,53 @@
     background: var(--surface);
     color: var(--ink);
     font: inherit;
+  }
+
+  .pages select {
+    padding: 7px 10px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+  }
+
+  .check {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--ink-2);
+    cursor: pointer;
+  }
+
+  .check input {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--ink);
+  }
+
+  .turn {
+    display: grid;
+    gap: 8px;
+    padding: 14px;
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    border: 2px solid var(--warm);
+  }
+
+  .turn p {
+    margin: 0;
+    font-size: 14px;
+    color: var(--ink-2);
+  }
+
+  .turn-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
   }
 
   .note {

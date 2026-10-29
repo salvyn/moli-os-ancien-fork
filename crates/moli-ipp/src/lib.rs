@@ -1,6 +1,9 @@
 //! Network printers that speak IPP (IPP Everywhere, AirPrint: most printers
 //! since 2013): their state in words, each cartridge's level, the queue, and
 //! printing from Moli (a photo, the pages of a PDF the dashboard rendered).
+//! A laser that takes only Brother's own language gets its pages as dots,
+//! said in that language here (`hbp.rs`), with its paper, toner saving and
+//! density.
 //! An older printer may speak IPP 1.1 only and say its supplies only over
 //! SNMP (`snmp.rs`): pages printed, toner and drum, alerts.
 //!
@@ -8,6 +11,7 @@
 //! queued at once, a worker sends it (an inkjet takes it as it prints: a
 //! minute or more), and its progress shows in the `job` point.
 
+mod hbp;
 mod proto;
 mod snmp;
 
@@ -196,21 +200,25 @@ impl Printer {
         checked(answer)
     }
 
-    /// Sends one document; the printer's job id.
+    /// Sends one document; the printer's job id. In Brother's language,
+    /// the copies are in the document, and there is no colour or second side.
     async fn print(&self, doc: &Document, sides: bool) -> anyhow::Result<i32> {
+        let brother = doc.content_type == hbp::MIME;
         let mut request = self
             .request(proto::PRINT_JOB)
             .name("requesting-user-name", USER)
             .name("job-name", &doc.name)
-            .mime("document-format", &doc.content_type)
-            .job_keyword(
+            .mime("document-format", &doc.content_type);
+        if !brother {
+            request = request.job_keyword(
                 "print-color-mode",
                 if doc.color { "color" } else { "monochrome" },
             );
-        if doc.copies > 1 {
+        }
+        if doc.copies > 1 && !brother {
             request = request.job_integer("copies", i32::try_from(doc.copies).unwrap_or(1));
         }
-        if sides {
+        if sides && !brother {
             request = request.job_keyword(
                 "sides",
                 if doc.two_sided {
@@ -449,6 +457,20 @@ fn more_points(more: More) -> Vec<PointSpec> {
     points
 }
 
+/// What the dashboard sends: what any printer takes, or pages as dots.
+fn language_point() -> PointSpec {
+    spec(
+        "language",
+        &moli_i18n::tr!("pilotes.ipp.langage"),
+        Kind::Enum {
+            values: vec![STANDARD.into(), BROTHER.into()],
+        },
+        false,
+        Semantic::Other,
+        None,
+    )
+}
+
 /// The device; `inks`: each cartridge or supply's name, as shown.
 fn device(
     ctx: &DriverCtx,
@@ -513,6 +535,7 @@ fn device(
             Semantic::Other,
             None,
         ),
+        language_point(),
         spec(
             "identify",
             &moli_i18n::tr!("pilotes.ipp.clignoter"),
@@ -557,6 +580,50 @@ fn device(
 
 // ---- printing --------------------------------------------------------------------------------
 
+/// What the dashboard sends a printer: a photo, PDF pages as images…
+const STANDARD: &str = "standard";
+/// …or pages as dots, for a laser that takes only Brother's language.
+const BROTHER: &str = "brother-hbp";
+
+/// The language a printer is sent, from the formats it takes: Brother's
+/// only when it takes nothing the dashboard makes otherwise.
+fn language(formats: &[String]) -> &'static str {
+    let takes = |f: &str| formats.iter().any(|x| x == f);
+    if takes(hbp::MIME) && !takes("image/jpeg") {
+        BROTHER
+    } else {
+        STANDARD
+    }
+}
+
+/// A page as dots, said in Brother's language with its sheet's settings.
+fn as_brother(doc: Document, formats: &[String]) -> anyhow::Result<Document> {
+    if !formats.iter().any(|f| f == hbp::MIME) {
+        bail!(moli_i18n::tr!(
+            "pilotes.ipp.format_refuse",
+            format = doc.content_type,
+            accepted = formats.join(", ")
+        ));
+    }
+    let bytes = {
+        let page = hbp::read_pbm(&doc.bytes).map_err(anyhow::Error::msg)?;
+        let settings = hbp::Settings {
+            name: &doc.name,
+            copies: doc.copies,
+            paper: doc.sheet.paper.as_deref().unwrap_or("A4"),
+            media: doc.sheet.media.as_deref().unwrap_or("PLAIN"),
+            toner_save: doc.sheet.toner_save,
+            density: doc.sheet.density,
+        };
+        hbp::job(&settings, &page).map_err(anyhow::Error::msg)?
+    };
+    Ok(Document {
+        content_type: hbp::MIME.into(),
+        bytes,
+        ..doc
+    })
+}
+
 /// What the sink, the worker and the run loop share about printing.
 #[derive(Debug, Default)]
 struct Spool {
@@ -598,18 +665,25 @@ impl PrintSink for Sink {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .clone();
+            if document.copies == 0 || document.copies > MAX_COPIES {
+                bail!(moli_i18n::tr!("pilotes.ipp.exemplaires", max = MAX_COPIES));
+            }
+            if document.bytes.is_empty() {
+                bail!(moli_i18n::tr!("pilotes.ipp.document_vide"));
+            }
+            // Dots in, Brother's language out (a few milliseconds a page,
+            // and a tenth of the weight in the queue).
+            let document = if document.content_type == hbp::PBM {
+                as_brother(document, &formats)?
+            } else {
+                document
+            };
             if !formats.is_empty() && !formats.contains(&document.content_type) {
                 bail!(moli_i18n::tr!(
                     "pilotes.ipp.format_refuse",
                     format = document.content_type,
                     accepted = formats.join(", ")
                 ));
-            }
-            if document.copies == 0 || document.copies > MAX_COPIES {
-                bail!(moli_i18n::tr!("pilotes.ipp.exemplaires", max = MAX_COPIES));
-            }
-            if document.bytes.is_empty() {
-                bail!(moli_i18n::tr!("pilotes.ipp.document_vide"));
             }
             let size = document.bytes.len();
             if spool.bytes.load(Ordering::Relaxed) + size > MAX_QUEUED_BYTES {
@@ -910,11 +984,13 @@ async fn poll(printer: &Printer, ctx: &DriverCtx, id: &DeviceId, seen: &mut Seen
         seen.inks = inks;
         seen.more = more;
     }
-    *spool.formats.lock().unwrap_or_else(PoisonError::into_inner) = answer
+    let formats: Vec<String> = answer
         .texts("document-format-supported")
         .into_iter()
         .map(str::to_owned)
         .collect();
+    ctx.set_state(id, "language", Value::Text(language(&formats).into()));
+    *spool.formats.lock().unwrap_or_else(PoisonError::into_inner) = formats;
     spool.two_sided.store(
         answer
             .texts("sides-supported")
@@ -1112,6 +1188,7 @@ mod tests {
             copies,
             color: true,
             two_sided: false,
+            sheet: moli_runtime::media::Sheet::default(),
         };
         assert!(sink.print(doc("application/pdf", 1, 3)).await.is_err());
         assert!(sink.print(doc("image/jpeg", 0, 3)).await.is_err());
@@ -1144,6 +1221,61 @@ mod tests {
         cancel(&printer, &spool, &mut printing).await.unwrap();
         // Every page queued before is now of an old epoch: the worker drops it.
         assert_eq!(spool.epoch.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn a_printer_that_takes_only_brothers_language_gets_dots() {
+        let formats = |f: &[&str]| f.iter().map(|&s| s.to_owned()).collect::<Vec<_>>();
+        // The HL-1210W, as it answers.
+        assert_eq!(
+            language(&formats(&["application/vnd.brother-hbp"])),
+            BROTHER
+        );
+        assert_eq!(
+            language(&formats(&["application/vnd.brother-hbp", "image/jpeg"])),
+            STANDARD
+        );
+        assert_eq!(language(&[]), STANDARD);
+    }
+
+    #[tokio::test]
+    async fn dots_are_queued_in_brothers_language() {
+        let (queue, mut queued) = mpsc::channel(4);
+        let spool = Arc::new(Spool::default());
+        spool.online.store(true, Ordering::Relaxed);
+        *spool.formats.lock().unwrap() = vec![hbp::MIME.into()];
+        let sink = Sink {
+            queue,
+            spool: Arc::clone(&spool),
+        };
+        let (width, height) = hbp::dots("A5").unwrap();
+        let mut bytes = format!("P4\n{width} {height}\n").into_bytes();
+        bytes.resize(bytes.len() + width.div_ceil(8) * height, 0);
+        let doc = |paper: &str| Document {
+            name: "Liste".into(),
+            content_type: hbp::PBM.into(),
+            bytes: bytes.clone(),
+            copies: 3,
+            color: false,
+            two_sided: false,
+            sheet: moli_runtime::media::Sheet {
+                paper: Some(paper.into()),
+                media: None,
+                toner_save: true,
+                density: 0,
+            },
+        };
+        // Drawn for A5, said to be A4: refused, with the sizes.
+        assert!(sink.print(doc("A4")).await.is_err());
+        sink.print(doc("A5")).await.unwrap();
+        let q = queued.recv().await.unwrap();
+        assert_eq!(q.doc.content_type, hbp::MIME);
+        let text = String::from_utf8_lossy(&q.doc.bytes);
+        assert!(text.contains("@PJL SET PAPER = A5\n") && text.contains("\x1b&l3X"));
+        assert!(q.doc.bytes.len() < bytes.len() / 10);
+        // A printer that takes photos is not sent dots.
+        *spool.formats.lock().unwrap() = vec!["image/jpeg".into()];
+        assert!(sink.print(doc("A5")).await.is_err());
     }
 
     #[test]

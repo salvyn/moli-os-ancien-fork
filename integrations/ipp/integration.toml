@@ -21,7 +21,7 @@ vars = []
 options = ["host"]
 
 [origin]
-reused = "RFC 8010 / 8011 (IPP 2.0) et PWG 5100.14 (IPP Everywhere) : protocole seulement, aucun code copié"
+reused = "RFC 8010 / 8011 (IPP 2.0) et PWG 5100.14 (IPP Everywhere) : protocole seulement, aucun code copié ; langage Brother (application/vnd.brother-hbp, src/hbp.rs) écrit d'après la description du format par le pilote libre brlaser (GPL) et ses utilisateurs : format seulement, aucun code copié"
 author = "agent"
 
 # Replayed by the crate's tests (crates/moli-ipp/src/proto.rs): a Canon MG3600's real answer.

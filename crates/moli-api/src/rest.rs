@@ -740,7 +740,8 @@ pub(crate) async fn snapshot(
 
 // ---- printing ---------------------------------------------------------------
 
-/// Biggest page taken (the dashboard sends 0.5 to 3 MB; Moli lives in 128 MB).
+/// Biggest page taken (the dashboard sends 0.5 to 3 MB, an A4 page as dots
+/// 4.4 MB; Moli lives in 128 MB).
 pub(crate) const MAX_PAGE: usize = 16 * 1024 * 1024;
 /// IPP names are 255 bytes at most.
 const MAX_NAME_BYTES: usize = 240;
@@ -756,6 +757,16 @@ pub(crate) struct PrintQuery {
     color: bool,
     #[serde(default)]
     two_sided: bool,
+    /// For a printer that takes pages as dots: paper size and kind, toner
+    /// saving, density (-6 to +6).
+    #[serde(default)]
+    paper: Option<String>,
+    #[serde(default)]
+    media: Option<String>,
+    #[serde(default)]
+    toner_save: bool,
+    #[serde(default)]
+    density: i8,
 }
 
 fn one_copy() -> u32 {
@@ -777,7 +788,7 @@ pub(crate) async fn print(
     Query(query): Query<PrintQuery>,
     request: axum::extract::Request,
 ) -> Response {
-    use moli_runtime::media::{Document, PrintError};
+    use moli_runtime::media::{Document, PrintError, Sheet};
     if !matches!(
         origin(&hub, request.headers(), &humans, &caller),
         Origin::Ui | Origin::Household
@@ -829,6 +840,12 @@ pub(crate) async fn print(
         copies: query.copies,
         color: query.color,
         two_sided: query.two_sided,
+        sheet: Sheet {
+            paper: query.paper,
+            media: query.media,
+            toner_save: query.toner_save,
+            density: query.density.clamp(-6, 6),
+        },
     };
     match hub.print(&DeviceId::from(id), document).await {
         Ok(()) => Json(json!({ "ok": true })).into_response(),
