@@ -26,8 +26,10 @@ use tokio_util::sync::CancellationToken;
 use crate::caller::Caller;
 use crate::people::PersonRef;
 
-/// Live streams one caller may hold at once (a few tabs, a wall tablet).
-const PER_CALLER: usize = 8;
+/// Live streams one caller may hold at once (a few tabs, a wall tablet;
+/// a laptop waking up opens new ones before the server lets go of those it
+/// had before sleeping).
+const PER_CALLER: usize = 16;
 /// Live streams in all.
 const IN_ALL: usize = 64;
 

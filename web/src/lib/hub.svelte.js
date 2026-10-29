@@ -123,20 +123,55 @@ function loadJournal() {
 
 let linked = false;
 
+/** Waits before opening the link again, after each failure in a row. */
+const REOPEN_MS = [1000, 2000, 5000, 10_000, 20_000, 30_000];
+
+/** The live stream, opened again whenever it is given up. A browser
+ *  retries by itself only a dropped connection: an answer that is not a
+ *  stream (Moli restarting, its 503 when this address holds too many
+ *  streams) closes it for good, and the dashboard would say « Moli is not
+ *  reachable » forever while every page loads. */
+function openStream() {
+  let source = null;
+  let failures = 0;
+  let timer = null;
+  const open = () => {
+    clearTimeout(timer);
+    timer = null;
+    source?.close();
+    source = new EventSource('/api/events');
+    // Every snapshot (first connection, reconnection, catch-up after lag)
+    // may follow a gap: reload the journal too.
+    source.addEventListener('snapshot', (m) => {
+      hub.connected = true;
+      failures = 0;
+      applySnapshot(JSON.parse(m.data));
+      loadJournal();
+    });
+    source.addEventListener('event', (m) => applyEvent(JSON.parse(m.data)));
+    source.onerror = () => {
+      hub.connected = false;
+      // Still CONNECTING: the browser tries again on its own.
+      if (source.readyState !== EventSource.CLOSED || timer) return;
+      timer = setTimeout(open, REOPEN_MS[Math.min(failures++, REOPEN_MS.length - 1)]);
+    };
+  };
+  // Back on the tab, or the network back: at once, not after the wait.
+  const now = () => {
+    if (hub.connected || document.visibilityState === 'hidden') return;
+    failures = 0;
+    open();
+  };
+  document.addEventListener('visibilitychange', now);
+  addEventListener('online', now);
+  open();
+}
+
 /** Opens the live link (once: both faces of the dashboard share it). */
 export function connect() {
   if (linked) return;
   linked = true;
-  const source = new EventSource('/api/events');
-  // Every snapshot (first connection, reconnection, catch-up after lag)
-  // may follow a gap: reload the journal too.
-  source.addEventListener('snapshot', (m) => {
-    hub.connected = true;
-    applySnapshot(JSON.parse(m.data));
-    loadJournal();
-  });
-  source.addEventListener('event', (m) => applyEvent(JSON.parse(m.data)));
-  source.onerror = () => (hub.connected = false); // EventSource reconnects on its own
+  openStream();
 
   const refresh = async () => {
     try {

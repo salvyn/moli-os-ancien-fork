@@ -47,6 +47,8 @@ anyhow.workspace = true
 rusqlite.workspace = true
 moli-net.workspace = true
 http.workspace = true
+# TCP_USER_TIMEOUT on incoming connections (Linux): the `all` feature.
+socket2 = { version = "0.6", features = ["all"] }
 serde_json.workspace = true
 axum.workspace = true
 clap.workspace = true

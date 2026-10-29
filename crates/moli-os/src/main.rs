@@ -4,6 +4,7 @@ mod backup;
 mod catalogue;
 mod config;
 
+use axum::serve::ListenerExt as _;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -395,7 +396,7 @@ async fn serve(config: Config, boot: Instant) -> anyhow::Result<()> {
     };
     // Client addresses matter: human sessions are bound to them.
     axum::serve(
-        listener,
+        listener.tap_io(forget_vanished),
         moli_api::router(hub.clone(), cancel.clone(), &surfaces)
             .into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
@@ -420,6 +421,23 @@ async fn serve(config: Config, boot: Instant) -> anyhow::Result<()> {
         .await
         .context("final state cache write")?;
     Ok(())
+}
+
+/// How long data sent to a client may go unacknowledged before its
+/// connection is dropped. A device that vanished (a laptop asleep, a phone
+/// off the Wi-Fi) never says goodbye: without this, Linux keeps trying for
+/// about a quarter of an hour, and each of its live streams keeps a seat
+/// (`/api/events` sends something every 15 s, so a dead one shows soon).
+const VANISHED_AFTER: std::time::Duration = std::time::Duration::from_secs(45);
+
+/// Each incoming connection: dropped once its client is gone.
+fn forget_vanished(stream: &mut tokio::net::TcpStream) {
+    #[cfg(target_os = "linux")]
+    if let Err(e) = socket2::SockRef::from(&*stream).set_tcp_user_timeout(Some(VANISHED_AFTER)) {
+        tracing::debug!(error = %e, "TCP_USER_TIMEOUT not set");
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = (stream, VANISHED_AFTER);
 }
 
 /// Lets the dashboard look for new devices in the Tuya account: each `tuya`

@@ -1075,7 +1075,7 @@ async fn a_phone_follows_its_person() {
 async fn live_streams_are_counted() {
     let (addr, hub) = server().await;
     let mut open = Vec::new();
-    for _ in 0..8 {
+    for _ in 0..16 {
         let (status, live) = live(&addr, "/api/events", "").await;
         assert_eq!(status, 200);
         open.push(live);

@@ -363,7 +363,7 @@ Limites de `Turn` : 14 derniers messages renvoyés au modèle, 2 000 caractères
 
 | Méthode | Chemin | Accès | Entrée | Réponse | Erreurs |
 |---|---|---|---|---|---|
-| GET | `/api/events` | libre ; un invité : ses pièces seulement | aucune | flux SSE : `snapshot` puis `event` (§ 3.1) | `503` trop de flux ouverts |
+| GET | `/api/events` | libre ; un invité : ses pièces seulement | aucune | flux SSE : `snapshot` puis `event` (§ 3.1) | `503` trop de flux ouverts (16 par appelant, 64 en tout, avec `/api/automations/live`) |
 | POST (GET, DELETE selon le client) | `/mcp` | libre ; origine `mcp` | JSON-RPC 2.0 | voir § 4 | `403` hôte |
 
 `503` sur les routes d'automatismes = `automations are not running` ; en pratique
@@ -552,6 +552,13 @@ les deux.
 Commentaires keep-alive périodiques (valeur par défaut d'axum). Le flux se ferme à l'arrêt
 du serveur. Depuis un navigateur : `new EventSource('/api/events')` avec
 `addEventListener('snapshot' | 'event', …)`.
+
+Un navigateur ne réessaie seul qu'une connexion coupée : une réponse qui n'est pas un flux
+(`503`, serveur qui redémarre) ferme l'`EventSource` pour de bon. Le tableau de bord le
+rouvre donc lui-même (1 s, 2 s, 5 s… jusqu'à 30 s, et tout de suite au retour sur l'onglet ou
+du réseau ; `web/src/lib/hub.svelte.js`). Côté serveur, chaque connexion reçue a
+`TCP_USER_TIMEOUT` = 45 s (Linux) : un client disparu (portable en veille) rend sa place en
+une minute environ au lieu d'un quart d'heure.
 
 Un **invité** ne suit que ses pièces : la photo ne garde que les appareils dont toutes les
 pièces sont les siennes (jamais un téléphone, une personne ni une présence) et les demandes
