@@ -41,6 +41,23 @@ pub struct Document {
     pub color: bool,
     /// Both sides of the sheet.
     pub two_sided: bool,
+    /// The sheet, for a printer that takes pages as dots.
+    pub sheet: Sheet,
+}
+
+/// The sheet a page made of dots goes on (a laser that speaks only its
+/// maker's language): none of it means anything to a printer that lays
+/// out a photo or a PDF itself.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Sheet {
+    /// Its size, as the printer names it (`A4`, `A5`, `LETTER`…); none: A4.
+    pub paper: Option<String>,
+    /// Its kind (`PLAIN`, `THIN`, `THICK`…); none: plain paper.
+    pub media: Option<String>,
+    /// Less toner, a lighter page.
+    pub toner_save: bool,
+    /// Darker (up to +6) or lighter (down to -6) than the printer's own.
+    pub density: i8,
 }
 
 impl std::fmt::Debug for Document {
@@ -52,6 +69,7 @@ impl std::fmt::Debug for Document {
             .field("copies", &self.copies)
             .field("color", &self.color)
             .field("two_sided", &self.two_sided)
+            .field("sheet", &self.sheet)
             .finish()
     }
 }
