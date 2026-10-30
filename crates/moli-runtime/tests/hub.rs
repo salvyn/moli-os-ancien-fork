@@ -1103,3 +1103,12 @@ async fn oversized_orders_are_refused_and_journaled_without_their_bulk() {
         other => panic!("{other:?}"),
     }
 }
+
+#[tokio::test]
+async fn a_relabelled_device_leaves_its_old_room() {
+    let (hub, _cancel) = start_with(guarded_hub()).await;
+    into_room(&hub, "Chambre amis").await;
+    assert_eq!(hub.known_rooms(), vec!["Chambre amis".to_string()]);
+    into_room(&hub, "Chambre d'amis").await;
+    assert_eq!(hub.known_rooms(), vec!["Chambre d'amis".to_string()]);
+}

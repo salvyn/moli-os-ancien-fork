@@ -1073,23 +1073,25 @@ impl Hub {
         self.guard().protected_rooms.clone()
     }
 
-    /// Every room a device is in, by the user's labels or the source
-    /// system's own: what a person may choose to protect. Sorted, each
-    /// name once (accents and case ignored).
+    /// The room each device is in: the user's label when it has one, else the
+    /// source system's own. What a person may choose to protect. Sorted, each
+    /// name once (accents and case ignored). A room whose devices were all
+    /// relabelled elsewhere is gone, though the source still names it.
     #[must_use]
     pub fn known_rooms(&self) -> Vec<String> {
         let mut rooms: Vec<String> = {
             let model = self.read();
             model
-                .labels
-                .values()
-                .filter_map(|l| l.room.clone())
-                .chain(
+                .devices
+                .iter()
+                .filter_map(|(id, d)| {
                     model
-                        .devices
-                        .values()
-                        .filter_map(|d| d.native_room.as_deref().map(str::to_owned)),
-                )
+                        .labels
+                        .get(id)
+                        .and_then(|l| l.room.clone())
+                        .filter(|r| !clean_room(r).is_empty())
+                        .or_else(|| d.native_room.as_deref().map(str::to_owned))
+                })
                 .map(|r| clean_room(&r))
                 .filter(|r| !r.is_empty())
                 .collect()
