@@ -74,6 +74,63 @@
     extra = '';
   }
 
+  // ---- merge: a room « deleted » by moving its devices into another ----
+  let merging = $state(false);
+  let from = $state('');
+  let into = $state('');
+  const moving = $derived(from ? count(from) : 0);
+  const wasProtected = (room) => protectedRooms.some((p) => same(p, room));
+
+  async function openMerge() {
+    try {
+      await asHuman(t('systeme.pieces.fusion_ouvrir_label'), async () => true);
+    } catch (err) {
+      if (err.message !== CANCELLED) note(err.message, 'error');
+      return;
+    }
+    await load();
+    from = '';
+    into = '';
+    merging = true;
+  }
+
+  /** Never leaves a moved device unprotected: the target is protected
+   *  first, the labels move, and only then the old name is dropped. */
+  async function merge() {
+    busy = true;
+    const ids = Object.values(hub.devices)
+      .filter((d) => {
+        const raw = d.label?.room || d.native_room;
+        return raw && same(raw, from);
+      })
+      .map((d) => d.id);
+    try {
+      await asHuman(t('systeme.pieces.fusion_label', { de: from, vers: into }), async () => {
+        const guarded = wasProtected(from);
+        if (guarded && !wasProtected(into)) {
+          await request('PUT', '/api/guard/rooms', { protected_rooms: [...protectedRooms, into] });
+        }
+        for (const id of ids) {
+          await request('PUT', `/api/labels/${encodeURIComponent(id)}`, { room: into });
+        }
+        if (guarded) {
+          const body = await request('PUT', '/api/guard/rooms', {
+            protected_rooms: [...protectedRooms.filter((p) => !same(p, from)), ...(wasProtected(into) ? [] : [into])],
+          });
+          protectedRooms = body.protected_rooms ?? [];
+        }
+      });
+      merging = false;
+      await load();
+      note(t('systeme.pieces.fusion_faite', { count: ids.length, vers: into }));
+    } catch (err) {
+      if (err.message !== CANCELLED) note(err.message, 'error');
+      await load();
+    } finally {
+      busy = false;
+    }
+  }
+
   async function save() {
     addExtra();
     busy = true;
@@ -96,7 +153,8 @@
 <section class="card rooms">
   <div class="card-head">
     <h2><Icon name="shield" size={18} />{t('systeme.pieces.titre')}</h2>
-    {#if !editing}
+    {#if !editing && !merging}
+      <button class="ghost" onclick={openMerge}><Icon name="lock" size={15} />{t('systeme.pieces.fusionner')}</button>
       <button class="primary" onclick={edit}><Icon name="lock" size={15} />{t('systeme.pieces.modifier')}</button>
     {/if}
   </div>
@@ -128,6 +186,31 @@
     <div class="actions">
       <button class="ghost" disabled={busy} onclick={() => (editing = false)}>{t('systeme.pieces.annuler')}</button>
       <button class="primary" disabled={busy} onclick={save}>{t('systeme.pieces.enregistrer')}</button>
+    </div>
+  {:else if merging}
+    <p class="muted">{t('systeme.pieces.fusion_aide')}</p>
+    <div class="merge">
+      <label class="pick">
+        <span>{t('systeme.pieces.fusion_de')}</span>
+        <select bind:value={from}>
+          <option value="">—</option>
+          {#each known as k (k)}<option value={k}>{k} ({count(k)})</option>{/each}
+        </select>
+      </label>
+      <label class="pick">
+        <span>{t('systeme.pieces.fusion_vers')}</span>
+        <select bind:value={into}>
+          <option value="">—</option>
+          {#each known.filter((k) => !from || !same(k, from)) as k (k)}<option value={k}>{k} ({count(k)})</option>{/each}
+        </select>
+      </label>
+    </div>
+    {#if from && into}
+      <p class="muted self">{t('systeme.pieces.fusion_resume', { count: moving, de: from, vers: into })}{wasProtected(from) ? ` ${t('systeme.pieces.fusion_protegee', { de: from, vers: into })}` : ''}</p>
+    {/if}
+    <div class="actions">
+      <button class="ghost" disabled={busy} onclick={() => (merging = false)}>{t('systeme.pieces.annuler')}</button>
+      <button class="primary" disabled={busy || !from || !into} onclick={merge}>{t('systeme.pieces.fusionner')}</button>
     </div>
   {:else if protectedRooms.length}
     <div class="chips">
@@ -189,6 +272,30 @@
     min-width: 0;
     min-height: 40px;
     padding: 0 12px;
+    border: 1px solid var(--line, rgba(128, 128, 128, 0.35));
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+  }
+
+  .merge {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px 20px;
+    margin-bottom: 12px;
+  }
+
+  .pick {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    cursor: default;
+  }
+
+  .pick select {
+    min-height: 40px;
+    padding: 0 10px;
     border: 1px solid var(--line, rgba(128, 128, 128, 0.35));
     border-radius: 10px;
     background: var(--surface);
