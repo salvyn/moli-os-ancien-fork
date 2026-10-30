@@ -5,21 +5,29 @@
   import { t } from '../../lib/i18n.svelte.js';
   import Icon from './Icon.svelte';
 
-  /** The rooms an agent never acts in without a person's approval. Reading
-   *  is free; opening the editor and saving both want the house's code, and
-   *  there is no switch to take this card out of that protection. */
+  /** The rooms of the house: which ones an agent never acts in without a
+   *  person's approval, and the means to add, merge and rename them. Reading
+   *  is free; opening the editor and every change want the house's code, and
+   *  there is no switch to take this card out of that protection. A room
+   *  exists through its devices (their label, else their origin) or because
+   *  it was added here (`added`, kept by Moli with no device yet). */
   let protectedRooms = $state([]);
+  let added = $state([]);
   let known = $state([]);
   let editing = $state(false);
   let draft = $state([]);
   let extra = $state('');
   let busy = $state(false);
 
+  function take(body) {
+    protectedRooms = body.protected_rooms ?? protectedRooms;
+    added = body.added_rooms ?? added;
+    known = body.known_rooms ?? known;
+  }
+
   async function load() {
     try {
-      const body = await request('GET', '/api/guard/rooms');
-      protectedRooms = body.protected_rooms ?? [];
-      known = body.known_rooms ?? [];
+      take(await request('GET', '/api/guard/rooms'));
     } catch {
       /* next time */
     }
@@ -27,6 +35,7 @@
 
   onMount(load);
 
+  const clean = (s) => s.trim().replace(/\s+/g, ' ');
   const norm = (s) =>
     s
       .normalize('NFD')
@@ -35,13 +44,17 @@
       .replace(/\s+/g, ' ')
       .toLowerCase();
   const same = (a, b) => norm(a) === norm(b);
+  const rawRoom = (d) => d.label?.room || d.native_room;
   /** Devices in a room, by the room they are filed in (labels first). */
-  const count = (room) =>
+  const devicesIn = (room) =>
     Object.values(hub.devices).filter((d) => {
-      const raw = d.label?.room || d.native_room;
+      const raw = rawRoom(d);
       return raw && same(raw, room);
-    }).length;
+    });
+  const count = (room) => devicesIn(room).length;
   const isOn = (room) => draft.some((d) => same(d, room));
+  const wasProtected = (room) => protectedRooms.some((p) => same(p, room));
+  const dedupe = (list) => list.filter((r, i) => list.findIndex((o) => same(o, r)) === i);
 
   /** Every room worth a line: those of the devices, then protected ones
    *  that match no device (renamed? still kept, and said so). */
@@ -68,10 +81,60 @@
     draft = isOn(room) ? draft.filter((d) => !same(d, room)) : [...draft, room];
   }
 
-  function addExtra() {
-    const name = extra.trim().replace(/\s+/g, ' ');
-    if (name && !isOn(name)) draft = [...draft, name];
-    extra = '';
+  /** Creates the room at once (kept by Moli), unchecked: protecting it is
+   *  the checkbox, then « Enregistrer ». */
+  async function addRoom() {
+    const name = clean(extra);
+    if (!name) return;
+    if (choices.some((c) => same(c.name, name))) {
+      note(t('systeme.pieces.existe_deja', { nom: name }), 'error');
+      return;
+    }
+    busy = true;
+    try {
+      const body = await asHuman(t('systeme.pieces.ajout_label', { nom: name }), () =>
+        request('PUT', '/api/guard/rooms', { added_rooms: [...added, name] }),
+      );
+      take({ added_rooms: body.added_rooms, known_rooms: body.known_rooms });
+      extra = '';
+      note(t('systeme.pieces.ajoutee', { nom: name }));
+    } catch (err) {
+      if (err.message !== CANCELLED) note(err.message, 'error');
+    } finally {
+      busy = false;
+    }
+  }
+
+  /** Moves every device of `from` into `to` (a room « removed » by merging,
+   *  or renamed). Never leaves a moved device unprotected: the target is
+   *  protected first, the labels move, and only then the old name is dropped.
+   *  The unsaved ticks follow the room. */
+  async function moveRoom(from, to, label, rename) {
+    const ids = devicesIn(from).map((d) => d.id);
+    await asHuman(label, async () => {
+      const guarded = wasProtected(from);
+      const needsTarget = guarded && !wasProtected(to);
+      if (needsTarget) {
+        await request('PUT', '/api/guard/rooms', { protected_rooms: [...protectedRooms, to] });
+      }
+      for (const id of ids) {
+        await request('PUT', `/api/labels/${encodeURIComponent(id)}`, { room: to });
+      }
+      const wasAdded = added.some((a) => same(a, from));
+      if (guarded || wasAdded) {
+        const rest = added.filter((a) => !same(a, from));
+        const body = await request('PUT', '/api/guard/rooms', {
+          ...(wasAdded ? { added_rooms: rename ? [...rest, to] : rest } : {}),
+          ...(guarded
+            ? { protected_rooms: [...protectedRooms.filter((p) => !same(p, from)), ...(needsTarget ? [to] : [])] }
+            : {}),
+        });
+        take(body);
+      }
+    });
+    draft = dedupe(draft.map((d) => (same(d, from) ? to : d)));
+    await load();
+    return ids.length;
   }
 
   // ---- merge: a room « deleted » by moving its devices into another ----
@@ -79,50 +142,19 @@
   let from = $state('');
   let into = $state('');
   const moving = $derived(from ? count(from) : 0);
-  const wasProtected = (room) => protectedRooms.some((p) => same(p, room));
 
-  async function openMerge() {
-    try {
-      await asHuman(t('systeme.pieces.fusion_ouvrir_label'), async () => true);
-    } catch (err) {
-      if (err.message !== CANCELLED) note(err.message, 'error');
-      return;
-    }
-    await load();
+  function openMerge() {
     from = '';
     into = '';
     merging = true;
   }
 
-  /** Never leaves a moved device unprotected: the target is protected
-   *  first, the labels move, and only then the old name is dropped. */
   async function merge() {
     busy = true;
-    const ids = Object.values(hub.devices)
-      .filter((d) => {
-        const raw = d.label?.room || d.native_room;
-        return raw && same(raw, from);
-      })
-      .map((d) => d.id);
     try {
-      await asHuman(t('systeme.pieces.fusion_label', { de: from, vers: into }), async () => {
-        const guarded = wasProtected(from);
-        if (guarded && !wasProtected(into)) {
-          await request('PUT', '/api/guard/rooms', { protected_rooms: [...protectedRooms, into] });
-        }
-        for (const id of ids) {
-          await request('PUT', `/api/labels/${encodeURIComponent(id)}`, { room: into });
-        }
-        if (guarded) {
-          const body = await request('PUT', '/api/guard/rooms', {
-            protected_rooms: [...protectedRooms.filter((p) => !same(p, from)), ...(wasProtected(into) ? [] : [into])],
-          });
-          protectedRooms = body.protected_rooms ?? [];
-        }
-      });
+      const n = await moveRoom(from, into, t('systeme.pieces.fusion_label', { de: from, vers: into }), false);
       merging = false;
-      await load();
-      note(t('systeme.pieces.fusion_faite', { count: ids.length, vers: into }));
+      note(t('systeme.pieces.fusion_faite', { count: n, vers: into }));
     } catch (err) {
       if (err.message !== CANCELLED) note(err.message, 'error');
       await load();
@@ -131,15 +163,51 @@
     }
   }
 
+  // ---- rename: a modal, the room then its new name ----
+  let dialog;
+  let renaming = $state('');
+  let newName = $state('');
+  const taken = $derived(
+    !!clean(newName) && choices.some((c) => !same(c.name, renaming) && same(c.name, newName)),
+  );
+  const renameReady = $derived(!!renaming && !!clean(newName) && !taken && clean(newName) !== renaming);
+
+  function openRename() {
+    renaming = '';
+    newName = '';
+    dialog.showModal();
+    dialog.focus();
+  }
+
+  function pickRename() {
+    newName = renaming;
+  }
+
+  async function rename() {
+    const to = clean(newName);
+    const de = renaming;
+    busy = true;
+    // The code sheet sits under a modal: close it first, back if refused.
+    dialog.close();
+    try {
+      await moveRoom(de, to, t('systeme.pieces.renommer_label', { de, vers: to }), true);
+      note(t('systeme.pieces.renommee', { de, vers: to }));
+    } catch (err) {
+      if (err.message !== CANCELLED) note(err.message, 'error');
+      await load();
+      dialog.showModal();
+    } finally {
+      busy = false;
+    }
+  }
+
   async function save() {
-    addExtra();
     busy = true;
     try {
       const body = await asHuman(t('systeme.pieces.enregistrer_label'), () =>
         request('PUT', '/api/guard/rooms', { protected_rooms: draft }),
       );
-      protectedRooms = body.protected_rooms ?? [];
-      known = body.known_rooms ?? known;
+      take(body);
       editing = false;
       note(t('systeme.pieces.enregistre'));
     } catch (err) {
@@ -153,41 +221,15 @@
 <section class="card rooms">
   <div class="card-head">
     <h2><Icon name="shield" size={18} />{t('systeme.pieces.titre')}</h2>
-    {#if !editing && !merging}
-      <button class="ghost" onclick={openMerge}><Icon name="lock" size={15} />{t('systeme.pieces.fusionner')}</button>
+    {#if !editing}
       <button class="primary" onclick={edit}><Icon name="lock" size={15} />{t('systeme.pieces.modifier')}</button>
     {/if}
   </div>
-  <p class="muted aide">{t('systeme.pieces.aide')}</p>
+  {#if !merging}
+    <p class="muted aide">{editing ? t('systeme.pieces.aide_edition') : t('systeme.pieces.aide')}</p>
+  {/if}
 
-  {#if editing}
-    <ul class="choices">
-      {#each choices as c (c.name)}
-        <li>
-          <label>
-            <input type="checkbox" checked={isOn(c.name)} onchange={() => flip(c.name)} />
-            <span>{c.name} ({count(c.name)})</span>
-            {#if c.lost}<small class="muted">{t('systeme.pieces.sans_appareil')}</small>{/if}
-          </label>
-        </li>
-      {/each}
-    </ul>
-    <form
-      class="add"
-      onsubmit={(e) => {
-        e.preventDefault();
-        addExtra();
-      }}
-    >
-      <input type="text" bind:value={extra} maxlength="80" placeholder={t('systeme.pieces.autre')} aria-label={t('systeme.pieces.autre')} />
-      <button type="submit" class="ghost" disabled={!extra.trim()}>{t('systeme.pieces.ajouter')}</button>
-    </form>
-    <p class="muted self"><Icon name="lock" size={14} />{t('systeme.pieces.toujours_protege')}</p>
-    <div class="actions">
-      <button class="ghost" disabled={busy} onclick={() => (editing = false)}>{t('systeme.pieces.annuler')}</button>
-      <button class="primary" disabled={busy} onclick={save}>{t('systeme.pieces.enregistrer')}</button>
-    </div>
-  {:else if merging}
+  {#if merging}
     <p class="muted">{t('systeme.pieces.fusion_aide')}</p>
     <div class="merge">
       <label class="pick">
@@ -212,6 +254,37 @@
       <button class="ghost" disabled={busy} onclick={() => (merging = false)}>{t('systeme.pieces.annuler')}</button>
       <button class="primary" disabled={busy || !from || !into} onclick={merge}>{t('systeme.pieces.fusionner')}</button>
     </div>
+  {:else if editing}
+    <ul class="choices">
+      {#each choices as c (c.name)}
+        <li>
+          <label>
+            <input type="checkbox" checked={isOn(c.name)} onchange={() => flip(c.name)} />
+            <span>{c.name} ({count(c.name)})</span>
+            {#if c.lost}<small class="muted">{t('systeme.pieces.sans_appareil')}</small>{/if}
+          </label>
+        </li>
+      {/each}
+    </ul>
+    <form
+      class="add"
+      onsubmit={(e) => {
+        e.preventDefault();
+        addRoom();
+      }}
+    >
+      <input type="text" bind:value={extra} maxlength="80" placeholder={t('systeme.pieces.autre')} aria-label={t('systeme.pieces.autre')} />
+      <button type="submit" class="ghost" disabled={busy || !clean(extra)}>{t('systeme.pieces.ajouter')}</button>
+    </form>
+    <div class="tools">
+      <button class="ghost" disabled={busy} onclick={openRename}>{t('systeme.pieces.renommer')}</button>
+      <button class="ghost" disabled={busy} onclick={openMerge}>{t('systeme.pieces.fusionner')}</button>
+    </div>
+    <p class="muted self"><Icon name="lock" size={14} />{t('systeme.pieces.toujours_protege')}</p>
+    <div class="actions">
+      <button class="ghost" disabled={busy} onclick={() => (editing = false)}>{t('systeme.pieces.annuler')}</button>
+      <button class="primary" disabled={busy} onclick={save}>{t('systeme.pieces.enregistrer')}</button>
+    </div>
   {:else if protectedRooms.length}
     <div class="chips">
       {#each protectedRooms as room (room)}<span class="chip">{room} ({count(room)})</span>{/each}
@@ -220,6 +293,39 @@
     <p class="muted">{t('systeme.pieces.aucune')}</p>
   {/if}
 </section>
+
+<dialog
+  bind:this={dialog}
+  onclick={(e) => e.target === dialog && dialog.close()}
+  aria-labelledby="renommer-titre"
+  tabindex="-1"
+>
+  <h3 id="renommer-titre">{t('systeme.pieces.renommer')}</h3>
+  <p class="muted aide">{t('systeme.pieces.renommer_aide')}</p>
+  <form
+    onsubmit={(e) => {
+      e.preventDefault();
+      if (renameReady) rename();
+    }}
+  >
+    <label class="pick">
+      <span>{t('systeme.pieces.renommer_piece')}</span>
+      <select bind:value={renaming} onchange={pickRename}>
+        <option value="">—</option>
+        {#each known as k (k)}<option value={k}>{k} ({count(k)})</option>{/each}
+      </select>
+    </label>
+    <label class="pick">
+      <span>{t('systeme.pieces.renommer_nouveau')}</span>
+      <input type="text" bind:value={newName} maxlength="80" disabled={!renaming} />
+    </label>
+    <p class="muted self" role="alert">{taken ? t('systeme.pieces.renommer_pris') : ''}</p>
+    <div class="actions">
+      <button type="button" class="ghost" onclick={() => dialog.close()}>{t('systeme.pieces.annuler')}</button>
+      <button type="submit" class="primary" disabled={busy || !renameReady}>{t('systeme.pieces.renommer_valider')}</button>
+    </div>
+  </form>
+</dialog>
 
 <style>
   .card-head {
@@ -270,6 +376,55 @@
   .add input {
     flex: 1;
     min-width: 0;
+    min-height: 40px;
+    padding: 0 12px;
+    border: 1px solid var(--line, rgba(128, 128, 128, 0.35));
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+  }
+
+  .tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  dialog {
+    border: 0;
+    padding: 18px;
+    width: min(440px, 94vw);
+    max-height: 90dvh;
+    overflow-y: auto;
+    border-radius: var(--r-xl);
+    background: var(--surface);
+    color: var(--ink);
+    box-shadow: 0 30px 80px rgb(0 0 0 / 40%);
+  }
+
+  dialog:focus {
+    outline: none;
+  }
+
+  dialog::backdrop {
+    background: rgb(4 6 12 / 60%);
+    backdrop-filter: blur(4px);
+  }
+
+  dialog h3 {
+    font-size: 18px;
+    font-weight: 750;
+    margin-bottom: 4px;
+  }
+
+  dialog form {
+    display: grid;
+    gap: 10px;
+  }
+
+  .pick input {
     min-height: 40px;
     padding: 0 12px;
     border: 1px solid var(--line, rgba(128, 128, 128, 0.35));

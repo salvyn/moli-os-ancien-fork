@@ -249,6 +249,8 @@ struct Inner {
     guard: RwLock<GuardPolicy>,
     /// Serializes protected-room writes so the file always matches the policy.
     guard_write: tokio::sync::Mutex<()>,
+    /// Rooms created from the dashboard (they may hold no device yet).
+    added_rooms: RwLock<Vec<String>>,
     /// Where each instance last reached its device.
     addresses: Mutex<addresses::Book>,
     /// Serializes address writes so the file always matches the book.
@@ -272,6 +274,30 @@ struct Inner {
 /// Longest room name, and most protected rooms, a person may save.
 const MAX_ROOM: usize = 80;
 const MAX_PROTECTED: usize = 64;
+const MAX_ADDED: usize = 64;
+
+/// Room names cleaned (spaces, doubles by accent and case) and bounded.
+fn clean_rooms(rooms: Vec<String>, most: usize, what: &str) -> Result<Vec<String>, GuardError> {
+    let mut kept: Vec<String> = Vec::new();
+    for room in rooms {
+        let room = clean_room(&room);
+        if room.is_empty() {
+            continue;
+        }
+        if room.chars().count() > MAX_ROOM {
+            return Err(GuardError::Invalid(format!(
+                "a room name is {MAX_ROOM} characters at most"
+            )));
+        }
+        if !kept.iter().any(|k| crate::guard::same_room(k, &room)) {
+            kept.push(room);
+        }
+    }
+    if kept.len() > most {
+        return Err(GuardError::Invalid(format!("{most} {what} at most")));
+    }
+    Ok(kept)
+}
 
 /// Why protected rooms were not saved.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -282,16 +308,22 @@ pub enum GuardError {
     Io(String),
 }
 
-/// `guard.json`: the protected rooms a person saved from the dashboard.
-#[derive(Serialize, Deserialize)]
+/// `guard.json`: what a person saved from the dashboard. The protected rooms
+/// are absent until first saved (the configuration file's list stands till
+/// then); the added rooms are rooms created from the dashboard, which may
+/// have no device yet.
+#[derive(Serialize, Deserialize, Default)]
 struct GuardRoomsFile {
-    protected_rooms: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    protected_rooms: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    added_rooms: Vec<String>,
 }
 
-/// The saved protected rooms, if there are some and they read. An unreadable
-/// file is *not* silently dropped to nothing: the configuration file's list
-/// stays (protection never relaxes by accident).
-fn load_guard_rooms(path: &std::path::Path) -> Option<Vec<String>> {
+/// The saved file, if there is one and it reads. An unreadable file is *not*
+/// silently dropped to nothing: the configuration file's protected rooms
+/// stay (protection never relaxes by accident).
+fn load_guard_rooms(path: &std::path::Path) -> Option<GuardRoomsFile> {
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
@@ -301,7 +333,7 @@ fn load_guard_rooms(path: &std::path::Path) -> Option<Vec<String>> {
         }
     };
     match serde_json::from_str::<GuardRoomsFile>(&text) {
-        Ok(file) => Some(file.protected_rooms),
+        Ok(file) => Some(file),
         Err(e) => {
             tracing::error!(file = %path.display(), error = %e, "saved protected rooms unreadable, the configuration file's used");
             None
@@ -404,8 +436,12 @@ impl Hub {
             None => (None, Some(moli_i18n::tr!("serveur.coffre.cle_absente"))),
         };
         let mut guard = opts.guard.clone();
-        if let Some(rooms) = opts.guard_rooms_path.as_deref().and_then(load_guard_rooms) {
-            guard.protected_rooms = rooms;
+        let mut added_rooms = Vec::new();
+        if let Some(file) = opts.guard_rooms_path.as_deref().and_then(load_guard_rooms) {
+            if let Some(rooms) = file.protected_rooms {
+                guard.protected_rooms = rooms;
+            }
+            added_rooms = file.added_rooms;
         }
         let (events, _) = broadcast::channel(opts.event_capacity.max(16));
         Ok(Self(Arc::new(Inner {
@@ -426,6 +462,7 @@ impl Hub {
             label_write: tokio::sync::Mutex::new(()),
             guard: RwLock::new(guard),
             guard_write: tokio::sync::Mutex::new(()),
+            added_rooms: RwLock::new(added_rooms),
             addresses: Mutex::new(book),
             address_write: tokio::sync::Mutex::new(()),
             state_dirty: AtomicBool::new(false),
@@ -1092,6 +1129,7 @@ impl Hub {
                         .filter(|r| !clean_room(r).is_empty())
                         .or_else(|| d.native_room.as_deref().map(str::to_owned))
                 })
+                .chain(self.added_rooms())
                 .map(|r| clean_room(&r))
                 .filter(|r| !r.is_empty())
                 .collect()
@@ -1101,42 +1139,25 @@ impl Hub {
         rooms
     }
 
+    /// The rooms created from the dashboard, in the order they were written.
+    #[must_use]
+    pub fn added_rooms(&self) -> Vec<String> {
+        self.0
+            .added_rooms
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
     /// Replaces the protected rooms (a person, with the code, at the
     /// dashboard): checked, written to `guard.json`, in force at once. Returns
     /// the list as kept (trimmed, each room once). `quiet_hours`,
     /// `protect_unassigned` and `dashboard` stay the configuration file's.
     pub async fn set_protected_rooms(&self, rooms: Vec<String>) -> Result<Vec<String>, GuardError> {
-        let mut kept: Vec<String> = Vec::new();
-        for room in rooms {
-            let room = clean_room(&room);
-            if room.is_empty() {
-                continue;
-            }
-            if room.chars().count() > MAX_ROOM {
-                return Err(GuardError::Invalid(format!(
-                    "a room name is {MAX_ROOM} characters at most"
-                )));
-            }
-            if !kept.iter().any(|k| crate::guard::same_room(k, &room)) {
-                kept.push(room);
-            }
-        }
-        if kept.len() > MAX_PROTECTED {
-            return Err(GuardError::Invalid(format!(
-                "{MAX_PROTECTED} protected rooms at most"
-            )));
-        }
+        let kept = clean_rooms(rooms, MAX_PROTECTED, "protected rooms")?;
         let _write = self.0.guard_write.lock().await;
-        if let Some(path) = &self.0.opts.guard_rooms_path {
-            let text = serde_json::to_string_pretty(&GuardRoomsFile {
-                protected_rooms: kept.clone(),
-            })
-            .map_err(|e| GuardError::Io(e.to_string()))?
-                + "\n";
-            crate::files::save(path, text.into_bytes(), crate::files::Mode::Shared)
-                .await
-                .map_err(|e| GuardError::Io(e.to_string()))?;
-        }
+        self.save_guard_rooms(Some(kept.clone()), self.added_rooms())
+            .await?;
         self.0
             .guard
             .write()
@@ -1145,6 +1166,51 @@ impl Hub {
             .clone_from(&kept);
         tracing::info!(rooms = ?kept, "protected rooms saved from the dashboard");
         Ok(kept)
+    }
+
+    /// Replaces the rooms created from the dashboard (a person, with the
+    /// code): checked, written to `guard.json`. A room needs no device to
+    /// exist, so a person can create one, then file devices in it. Never
+    /// touches the protected rooms. Returns the list as kept.
+    pub async fn set_added_rooms(&self, rooms: Vec<String>) -> Result<Vec<String>, GuardError> {
+        let kept = clean_rooms(rooms, MAX_ADDED, "added rooms")?;
+        let _write = self.0.guard_write.lock().await;
+        // The protected rooms stay as the file had them (absent: the
+        // configuration file's list still stands).
+        let protected = self
+            .0
+            .opts
+            .guard_rooms_path
+            .as_deref()
+            .and_then(load_guard_rooms)
+            .and_then(|f| f.protected_rooms);
+        self.save_guard_rooms(protected, kept.clone()).await?;
+        self.0
+            .added_rooms
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone_from(&kept);
+        tracing::info!(rooms = ?kept, "rooms added from the dashboard");
+        Ok(kept)
+    }
+
+    async fn save_guard_rooms(
+        &self,
+        protected_rooms: Option<Vec<String>>,
+        added_rooms: Vec<String>,
+    ) -> Result<(), GuardError> {
+        let Some(path) = &self.0.opts.guard_rooms_path else {
+            return Ok(());
+        };
+        let text = serde_json::to_string_pretty(&GuardRoomsFile {
+            protected_rooms,
+            added_rooms,
+        })
+        .map_err(|e| GuardError::Io(e.to_string()))?
+            + "\n";
+        crate::files::save(path, text.into_bytes(), crate::files::Mode::Shared)
+            .await
+            .map_err(|e| GuardError::Io(e.to_string()))
     }
 
     #[must_use]

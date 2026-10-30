@@ -544,12 +544,24 @@ async fn only_a_person_changes_the_protected_rooms() {
     let got: Json = serde_json::from_str(&body).unwrap();
     assert_eq!(got["protected_rooms"], json!(["Chambre Haute", "Bureau"]));
 
+    // A created room needs no device; it leaves the protected rooms alone.
+    let add = json!({ "added_rooms": [" Atelier ", "atelier", "Cave"] });
+    let (status, body) = request_with(&addr, "PUT", "/api/guard/rooms", Some(&add), ui).await;
+    assert_eq!(status, 403, "{body}");
+    let (status, body) = request_with(&addr, "PUT", "/api/guard/rooms", Some(&add), &pin).await;
+    assert_eq!(status, 200, "{body}");
+    let got: Json = serde_json::from_str(&body).unwrap();
+    assert_eq!(got["added_rooms"], json!(["Atelier", "Cave"]));
+    assert_eq!(got["protected_rooms"], json!(["Chambre Haute", "Bureau"]));
+    assert_eq!(got["known_rooms"], json!(["Atelier", "Cave"]));
+
     let again = Hub::new(moli_runtime::HubOptions {
         guard_rooms_path: Some(dir.join("guard.json")),
         ..moli_runtime::HubOptions::default()
     })
     .unwrap();
     assert_eq!(again.protected_rooms(), ["Chambre Haute", "Bureau"]);
+    assert_eq!(again.added_rooms(), ["Atelier", "Cave"]);
     let _ = std::fs::remove_dir_all(dir);
 }
 

@@ -920,6 +920,7 @@ pub(crate) async fn set_energy_contracts(
 pub(crate) async fn guard_rooms(State(hub): State<Hub>) -> Response {
     Json(json!({
         "protected_rooms": hub.protected_rooms(),
+        "added_rooms": hub.added_rooms(),
         "known_rooms": hub.known_rooms(),
     }))
     .into_response()
@@ -928,7 +929,12 @@ pub(crate) async fn guard_rooms(State(hub): State<Hub>) -> Response {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct GuardRoomsBody {
-    protected_rooms: Vec<String>,
+    /// Replaces the protected rooms when given.
+    #[serde(default)]
+    protected_rooms: Option<Vec<String>>,
+    /// Replaces the rooms created from the dashboard when given.
+    #[serde(default)]
+    added_rooms: Option<Vec<String>>,
 }
 
 /// `PUT /api/guard/rooms`: a person (code) replaces the protected rooms; in
@@ -947,9 +953,20 @@ pub(crate) async fn set_guard_rooms(
             &moli_i18n::tr!("serveur.garde.pieces_humain"),
         );
     }
-    match hub.set_protected_rooms(body.protected_rooms).await {
-        Ok(rooms) => Json(json!({
-            "protected_rooms": rooms,
+    let saved = async {
+        if let Some(rooms) = body.added_rooms {
+            hub.set_added_rooms(rooms).await?;
+        }
+        if let Some(rooms) = body.protected_rooms {
+            hub.set_protected_rooms(rooms).await?;
+        }
+        Ok::<_, GuardError>(())
+    }
+    .await;
+    match saved {
+        Ok(()) => Json(json!({
+            "protected_rooms": hub.protected_rooms(),
+            "added_rooms": hub.added_rooms(),
             "known_rooms": hub.known_rooms(),
         }))
         .into_response(),
