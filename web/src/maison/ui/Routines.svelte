@@ -72,10 +72,6 @@
 {/if}
 
 <style>
-  .routines {
-    margin-top: 20px;
-  }
-
   .buttons {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));

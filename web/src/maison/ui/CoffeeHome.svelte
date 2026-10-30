@@ -64,14 +64,9 @@
 </section>
 
 <style>
-  /* Under the energy card, in the home page's side column. */
   .coffee-home {
     display: grid;
     gap: 12px;
-  }
-
-  .coffee-home:not(:first-child) {
-    margin-top: 20px;
   }
 
   .coffee-home .card-head {
@@ -103,17 +98,19 @@
 
   .quick button {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 8px;
-    min-height: 56px;
-    padding: 6px 12px 6px 8px;
+    justify-content: center;
+    gap: 4px;
+    min-height: 76px;
+    padding: 8px 10px;
     border: 0;
     border-radius: var(--r-sm);
     background: var(--surface-2);
     color: var(--ink);
     font: inherit;
     font-weight: 650;
-    text-align: left;
+    text-align: center;
     cursor: pointer;
   }
 

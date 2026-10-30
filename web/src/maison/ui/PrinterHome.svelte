@@ -51,11 +51,6 @@
     gap: 10px;
   }
 
-  /* Under the energy card, in the home page's side column. */
-  .printer-home:not(:first-child) {
-    margin-top: 20px;
-  }
-
   /* The name on one clean line, the link to the printer page at its end. */
   .printer-home .card-head {
     margin-bottom: 0;

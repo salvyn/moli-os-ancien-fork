@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { asHuman, CANCELLED, note } from '../lib/home.svelte.js';
+  import { asHuman, CANCELLED, hub, note } from '../lib/home.svelte.js';
   import { request } from '../../lib/api.js';
   import { t } from '../../lib/i18n.svelte.js';
   import Icon from './Icon.svelte';
@@ -35,6 +35,12 @@
       .replace(/\s+/g, ' ')
       .toLowerCase();
   const same = (a, b) => norm(a) === norm(b);
+  /** Devices in a room, by the room they are filed in (labels first). */
+  const count = (room) =>
+    Object.values(hub.devices).filter((d) => {
+      const raw = d.label?.room || d.native_room;
+      return raw && same(raw, room);
+    }).length;
   const isOn = (room) => draft.some((d) => same(d, room));
 
   /** Every room worth a line: those of the devices, then protected ones
@@ -102,7 +108,7 @@
         <li>
           <label>
             <input type="checkbox" checked={isOn(c.name)} onchange={() => flip(c.name)} />
-            <span>{c.name}</span>
+            <span>{c.name} ({count(c.name)})</span>
             {#if c.lost}<small class="muted">{t('systeme.pieces.sans_appareil')}</small>{/if}
           </label>
         </li>
@@ -125,7 +131,7 @@
     </div>
   {:else if protectedRooms.length}
     <div class="chips">
-      {#each protectedRooms as room (room)}<span class="chip">{room}</span>{/each}
+      {#each protectedRooms as room (room)}<span class="chip">{room} ({count(room)})</span>{/each}
     </div>
   {:else}
     <p class="muted">{t('systeme.pieces.aucune')}</p>
